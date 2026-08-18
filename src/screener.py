@@ -31,6 +31,7 @@ __all__ = [
     "load_profiles",
     "apply_profile",
     "apply_dow30_ranking",
+    "compute_composite_score",
     "DOW30_OUTPUT_COLUMNS",
 ]
 
@@ -56,6 +57,11 @@ class ScreenerProfile(BaseModel):
     sort_by: str = "margin_of_safety_pct"
     include_value_traps: bool = False
 
+    # Phase 2 — quality filters
+    min_piotroski: Optional[int] = None            # None = no filter
+    min_roic: Optional[float] = None               # % threshold (e.g. 8.0 for 8%)
+    exclude_altman_distress: bool = False           # exclude Z < 1.81 when True
+
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
 
@@ -68,6 +74,9 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         max_p_fcf=15.0,
         max_net_debt_ebitda=2.5,
         min_margin_of_safety_pct=20.0,
+        min_piotroski=4,          # conservative: F6/F7 missing → max 7 points
+        exclude_altman_distress=True,
+        min_roic=8.0,
     ),
     "buffett_quality": ScreenerProfile(
         name="buffett_quality",
@@ -77,6 +86,8 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         max_p_fcf=25.0,
         max_net_debt_ebitda=1.5,
         min_margin_of_safety_pct=15.0,
+        min_piotroski=5,
+        min_roic=12.0,
     ),
     "high_fcf_yield": ScreenerProfile(
         name="high_fcf_yield",
@@ -86,6 +97,20 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         max_p_fcf=12.0,
         max_net_debt_ebitda=3.0,
         min_margin_of_safety_pct=10.0,
+        # no Piotroski / ROIC filter — keep the screen broad
+    ),
+    "quality_value": ScreenerProfile(
+        name="quality_value",
+        max_pe=25.0,
+        max_pb=4.0,
+        max_ev_ebitda=15.0,
+        max_p_fcf=20.0,
+        max_net_debt_ebitda=2.5,
+        min_margin_of_safety_pct=15.0,
+        min_piotroski=5,
+        min_roic=10.0,
+        exclude_altman_distress=True,
+        sort_by="Score",
     ),
 }
 
@@ -149,6 +174,49 @@ def load_profiles(yaml_path: Optional[str] = None) -> dict[str, ScreenerProfile]
     return profiles
 
 
+# ── Composite score ───────────────────────────────────────────────────────────
+
+
+def compute_composite_score(result: "ValuationResult") -> Optional[float]:
+    """
+    Compute a 0–100 composite rank score from four weighted pillars.
+
+    Pillar weights:
+      Valuation     (30 pts) — Margin of Safety %
+      Quality/Moat  (25 pts) — ROIC (20% = full marks)
+      Financial     (25 pts) — Piotroski score (7 = full marks, F6/F7 skipped)
+      Momentum      (20 pts) — 52-week position (lower = more upside)
+
+    Neutral (12.5 / 10) awarded when a pillar's data is unavailable so that
+    missing-data companies are not unfairly penalised or rewarded.
+    """
+    # Valuation pillar (30 pts): MoS%
+    mos = result.margin_of_safety_pct
+    val_score = min(max(mos or 0, 0), 100) * 0.30
+
+    # Quality / Moat pillar (25 pts): ROIC
+    if result.roic is not None:
+        quality_score = min(result.roic * 100 / 20, 1.0) * 25   # 20% ROIC → full marks
+    else:
+        quality_score = 12.5  # neutral
+
+    # Financial Health pillar (25 pts): Piotroski
+    if result.piotroski_score is not None:
+        health_score = (result.piotroski_score / 7) * 25  # 7 = max achievable without F6/F7
+    else:
+        health_score = 12.5  # neutral
+
+    # Price Momentum / Mean Reversion pillar (20 pts): 52w position (lower = better)
+    pos = result.price_vs_52w_low_pct
+    if pos is not None:
+        momentum_score = (1 - pos / 100) * 20
+    else:
+        momentum_score = 10  # neutral
+
+    total = val_score + quality_score + health_score + momentum_score
+    return round(total, 1)
+
+
 # ── Filter & rank ─────────────────────────────────────────────────────────────
 
 # Columns included in the standard output DataFrame
@@ -156,7 +224,8 @@ _OUTPUT_COLUMNS = [
     "Ticker", "Company", "Sector", "Industry", "Price",
     "52w Low", "52w High", "52w Position%",
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
-    "DCF GGM", "DCF Exit", "DCF Avg",
+    "DCF GGM", "DCF Exit", "DCF Avg", "DCF Model",
+    "Piotroski", "ROIC%", "Score",
 ]
 
 # Columns for the Dow 30 ranking report (no MoS filter, ranked by 52w position)
@@ -170,12 +239,23 @@ DOW30_OUTPUT_COLUMNS = [
 def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
     """Return True if result meets all non-None thresholds in the profile."""
 
-    def _check(value: Optional[float], max_val: Optional[float]) -> bool:
-        """Pass if threshold is None OR value is None OR value <= threshold."""
+    def _check(
+        value: Optional[float],
+        max_val: Optional[float],
+        allow_negative: bool = False,
+    ) -> bool:
+        """Pass if threshold is None OR value is None OR value <= threshold.
+
+        When allow_negative is False (default), negative values are rejected
+        regardless of the threshold — a negative P/B or P/E is not a bargain,
+        it signals negative equity / earnings and should be excluded.
+        """
         if max_val is None:
             return True
         if value is None:
             return True  # missing data does not disqualify
+        if not allow_negative and value < 0:
+            return False  # reject negative multiples (e.g. HPQ P/B = -190)
         return value <= max_val
 
     if not _check(result.pe_ratio, profile.max_pe):
@@ -186,7 +266,8 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         return False
     if not _check(result.p_fcf, profile.max_p_fcf):
         return False
-    if not _check(result.net_debt_ebitda, profile.max_net_debt_ebitda):
+    # net_debt_ebitda: allow negative (net cash position is a positive signal)
+    if not _check(result.net_debt_ebitda, profile.max_net_debt_ebitda, allow_negative=True):
         return False
 
     # Minimum MoS — requires an actual value
@@ -194,6 +275,21 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         if result.margin_of_safety_pct is None:
             return False
         if result.margin_of_safety_pct < profile.min_margin_of_safety_pct:
+            return False
+
+    # Piotroski — None means data unavailable → pass (don't penalise missing data)
+    if profile.min_piotroski is not None and result.piotroski_score is not None:
+        if result.piotroski_score < profile.min_piotroski:
+            return False
+
+    # Altman — only exclude Distress Zone when configured
+    if profile.exclude_altman_distress and result.altman_z is not None:
+        if result.altman_z < 1.81:
+            return False
+
+    # ROIC — None passes (missing data); threshold stored in %, result stored as decimal
+    if profile.min_roic is not None and result.roic is not None:
+        if result.roic * 100 < profile.min_roic:
             return False
 
     return True
@@ -246,6 +342,10 @@ def apply_profile(
             "DCF GGM":          r.dcf_ggm_intrinsic,
             "DCF Exit":         r.dcf_exit_intrinsic,
             "DCF Avg":          r.dcf_intrinsic_value,
+            "DCF Model":        r.dcf_model_used or "—",
+            "Piotroski":        r.piotroski_score,
+            "ROIC%":            (r.roic * 100) if r.roic is not None else None,
+            "Score":            r.composite_score,
         })
 
     if not rows:

@@ -29,8 +29,9 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+from src.backtester import BacktestResult, run_backtest, LIMITATIONS
 from src.engine import DCFParams, ValuationResult, evaluate
-from src.fetcher import CacheStore, TickerData, fetch_universe
+from src.fetcher import CacheStore, TickerData, fetch_universe, fetch_risk_free_rate
 from src.screener import ScreenerProfile, apply_profile, apply_dow30_ranking, load_profiles
 from src.universe import UniverseSource, get_universe
 
@@ -67,7 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        choices=["deep_value", "buffett_quality", "high_fcf_yield"],
+        choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value"],
         default="deep_value",
         help="Screener preset to apply.",
     )
@@ -96,6 +97,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dcf-terminal",  type=float, default=0.025, metavar="FLOAT", help="Terminal growth rate.")
     parser.add_argument("--dcf-years",     type=int,   default=10,    metavar="N",     help="Projection horizon.")
     parser.add_argument("--dcf-exit-multiple", type=float, default=12.0, metavar="FLOAT", help="EV/EBITDA exit multiple.")
+    parser.add_argument("--backtest", action="store_true",
+        help="Run walk-forward backtest instead of live screen.")
+    parser.add_argument("--backtest-start", type=int, default=2018, metavar="YEAR",
+        help="First year of the backtest (default: 2018).")
+    parser.add_argument("--backtest-end", type=int, default=2024, metavar="YEAR",
+        help="Last year of the backtest, inclusive (default: 2024).")
+    parser.add_argument("--backtest-top-n", type=int, default=10, metavar="N",
+        help="Number of top-ranked tickers to hold each year (default: 10).")
+    parser.add_argument("--backtest-benchmark", default="^GSPC", metavar="TICKER",
+        help="Benchmark ticker for comparison (default: ^GSPC).")
     return parser
 
 
@@ -127,7 +138,7 @@ def interactive_wizard() -> argparse.Namespace:
     if universe == "custom":
         csv_path = _prompt("Path to ticker CSV", "data/custom_tickers.csv")
 
-    profile     = _prompt("Screener profile (deep_value/buffett_quality/high_fcf_yield)", "deep_value")
+    profile     = _prompt("Screener profile (deep_value/buffett_quality/high_fcf_yield/quality_value)", "deep_value")
     workers     = int(_prompt("Parallel fetch threads", "8"))
     rps         = float(_prompt("Max requests per second", "2.0"))
     export_fmt  = _prompt("Export format (csv/excel/both/none)", "csv")
@@ -154,6 +165,12 @@ def interactive_wizard() -> argparse.Namespace:
         dcf_terminal=dcf_terminal,
         dcf_years=dcf_years,
         dcf_exit_multiple=dcf_exit,
+        # backtest params — not prompted in wizard, use defaults
+        backtest=False,
+        backtest_start=2018,
+        backtest_end=2024,
+        backtest_top_n=10,
+        backtest_benchmark="^GSPC",
     )
 
 
@@ -225,6 +242,10 @@ def render_table(df: pd.DataFrame) -> None:
             ("DCF GGM",       "right", "green"),
             ("DCF Exit",      "right", "green"),
             ("DCF Avg",       "right", "bold green"),
+            ("DCF Model",     "right", "dim"),
+            ("Piotroski",     "right", ""),
+            ("ROIC%",         "right", ""),
+            ("Score",         "right", "bold"),
         ]
 
     for header, justify, style in col_defs:
@@ -256,6 +277,12 @@ def render_table(df: pd.DataFrame) -> None:
                 f"[{mos_style}]{_fmt(mos, 1)}%[/{mos_style}]",
             )
         else:
+            piotroski_val = row.get("Piotroski")
+            piotroski_str = str(int(piotroski_val)) if piotroski_val is not None and not (isinstance(piotroski_val, float) and pd.isna(piotroski_val)) else "—"
+            roic_val = row.get("ROIC%")
+            roic_str = f"{roic_val:.1f}%" if roic_val is not None and not (isinstance(roic_val, float) and pd.isna(roic_val)) else "—"
+            score_val = row.get("Score")
+            score_str = f"{score_val:.1f}" if score_val is not None and not (isinstance(score_val, float) and pd.isna(score_val)) else "—"
             table.add_row(
                 str(row["Ticker"]),
                 str(row["Company"]) if row["Company"] else "—",
@@ -274,6 +301,10 @@ def render_table(df: pd.DataFrame) -> None:
                 _fmt(row["DCF GGM"], 2),
                 _fmt(row["DCF Exit"], 2),
                 _fmt(row["DCF Avg"], 2),
+                str(row.get("DCF Model", "—")),
+                piotroski_str,
+                roic_str,
+                score_str,
             )
 
     console.print(table)
@@ -321,6 +352,140 @@ def _save_failed(failed: list[str], profile_name: str) -> Optional[Path]:
     return path
 
 
+# ── Backtest mode ─────────────────────────────────────────────────────────────
+
+
+def _run_backtest_mode(
+    args: argparse.Namespace,
+    tickers: list[str],
+    cache: CacheStore,
+    valuation_results: list[ValuationResult],
+    dcf_params: DCFParams,
+    rf_rate: float,
+) -> None:
+    """Run walk-forward backtest and display/export results."""
+    from src.backtester import run_backtest, LIMITATIONS  # already imported at top; safe re-import
+
+    # Load screener profile
+    profiles = load_profiles(str(_PROFILES_YAML))
+    profile_name = getattr(args, "profile", "deep_value")
+    profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
+
+    console.print(f"\n[bold yellow]⚠  BACKTEST MODE[/bold yellow]  profile=[cyan]{profile_name}[/cyan]  "
+                  f"years={args.backtest_start}–{args.backtest_end}  top_n={args.backtest_top_n}\n")
+
+    # Run the backtest
+    bt: BacktestResult = run_backtest(
+        tickers=tickers,
+        cache=cache,
+        profile=profile,
+        dcf_params=dcf_params,
+        rf_rate=rf_rate,
+        start_year=args.backtest_start,
+        end_year=args.backtest_end,
+        top_n=args.backtest_top_n,
+        benchmark_ticker=args.backtest_benchmark,
+    )
+
+    # ── Print limitations warning ─────────────────────────────────────────────
+    console.print(f"[bold red]{'─' * 70}[/bold red]")
+    for line in LIMITATIONS.strip().splitlines():
+        console.print(f"[dim]{line}[/dim]")
+    console.print(f"[bold red]{'─' * 70}[/bold red]\n")
+
+    if not bt.annual_rows:
+        console.print("[yellow]No annual rows were produced. "
+                      "Check that the profile has passing tickers and price data is available.[/yellow]")
+        return
+
+    # ── Print annual results table ────────────────────────────────────────────
+    table = Table(
+        title=f"Backtest Results — {profile_name} ({bt.start_year}–{bt.end_year})",
+        box=box.SIMPLE_HEAVY,
+        show_lines=False,
+        highlight=True,
+    )
+    table.add_column("Year",        justify="right",  style="bold")
+    table.add_column("Portfolio%",  justify="right",  style="bold green")
+    table.add_column("Benchmark%",  justify="right",  style="dim")
+    table.add_column("Excess%",     justify="right",  style="bold")
+    table.add_column("Picks",       justify="right",  style="dim")
+    table.add_column("Win Rate",    justify="right",  style="")
+
+    def _pct(v: float) -> str:
+        colour = "green" if v >= 0 else "red"
+        return f"[{colour}]{v * 100:+.1f}%[/{colour}]"
+
+    for row in bt.annual_rows:
+        win_pct = (row.winning_picks / row.total_picks * 100) if row.total_picks > 0 else 0.0
+        table.add_row(
+            str(row.year),
+            _pct(row.portfolio_return),
+            _pct(row.benchmark_return),
+            _pct(row.excess_return),
+            str(row.total_picks),
+            f"{win_pct:.0f}%",
+        )
+
+    console.print(table)
+
+    # ── Print summary ─────────────────────────────────────────────────────────
+    console.print()
+    console.rule("[bold]Summary[/bold]")
+    sharpe_str  = f"{bt.sharpe_ratio:.2f}"  if bt.sharpe_ratio  is not None else "N/A"
+    sortino_str = f"{bt.sortino_ratio:.2f}" if bt.sortino_ratio is not None else "N/A"
+    console.print(
+        f"  [bold]CAGR Portfolio:[/bold]  {bt.cagr_portfolio * 100:+.2f}%   "
+        f"[bold]CAGR Benchmark:[/bold]  {bt.cagr_benchmark * 100:+.2f}%\n"
+        f"  [bold]Sharpe:[/bold]          {sharpe_str}   "
+        f"[bold]Sortino:[/bold]         {sortino_str}\n"
+        f"  [bold]Max Drawdown:[/bold]    {bt.max_drawdown * 100:.2f}%   "
+        f"[bold]Win Rate:[/bold]        {bt.win_rate * 100:.1f}%  "
+        f"({bt.total_picks} picks)\n"
+    )
+
+    # ── Export to CSV ─────────────────────────────────────────────────────────
+    export_fmt = getattr(args, "export", "csv")
+    if export_fmt in ("csv", "both", "excel"):
+        _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_path = _REPORTS_DIR / f"{timestamp}_backtest_{profile_name}.csv"
+
+        import csv as _csv
+        with csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = _csv.writer(f)
+            writer.writerow([
+                "Year", "Portfolio%", "Benchmark%", "Excess%",
+                "Picks", "WinningPicks", "WinRate%",
+                "SelectedTickers",
+            ])
+            for row in bt.annual_rows:
+                win_rate_pct = (row.winning_picks / row.total_picks * 100) if row.total_picks > 0 else 0.0
+                writer.writerow([
+                    row.year,
+                    f"{row.portfolio_return * 100:.4f}",
+                    f"{row.benchmark_return * 100:.4f}",
+                    f"{row.excess_return * 100:.4f}",
+                    row.total_picks,
+                    row.winning_picks,
+                    f"{win_rate_pct:.2f}",
+                    "|".join(row.selected_tickers),
+                ])
+            # SUMMARY row
+            writer.writerow([
+                "SUMMARY",
+                f"{bt.cagr_portfolio * 100:.4f}",
+                f"{bt.cagr_benchmark * 100:.4f}",
+                f"{(bt.cagr_portfolio - bt.cagr_benchmark) * 100:.4f}",
+                bt.total_picks,
+                "",
+                f"{bt.win_rate * 100:.2f}",
+                f"Sharpe={sharpe_str} Sortino={sortino_str} MaxDD={bt.max_drawdown * 100:.2f}%",
+            ])
+
+        console.print(f"[green]Backtest saved:[/green] {csv_path}")
+
+
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
 
@@ -361,10 +526,13 @@ def run(args: argparse.Namespace) -> None:
         exit_multiple=args.dcf_exit_multiple,
     )
 
+    rf_rate = fetch_risk_free_rate(cache)
+    logger.info("Risk-free rate: %.2f%%", rf_rate * 100)
+
     valuation_results: list[ValuationResult] = []
     for td in ticker_data_list:
         try:
-            result = evaluate(td, dcf_params)
+            result = evaluate(td, dcf_params, rf_rate=rf_rate)
             valuation_results.append(result)
         except Exception as exc:
             logging.warning("Evaluation failed for %s: %s", td.ticker, exc)
@@ -376,6 +544,11 @@ def run(args: argparse.Namespace) -> None:
         f"[bold]Valuation:[/bold]  OK={ok_count}  VALUE_TRAP={trap_count}  "
         f"INSUFFICIENT_DATA={insuff_count}\n"
     )
+
+    # ── 3b. Backtest mode — branch off here ───────────────────────────────────
+    if getattr(args, "backtest", False):
+        _run_backtest_mode(args, tickers, cache, valuation_results, dcf_params, rf_rate)
+        return
 
     # ── 4. Screen ─────────────────────────────────────────────────────────────
     is_dow30_mode = (source == UniverseSource.DOW30)

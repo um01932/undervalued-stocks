@@ -9,3 +9,5 @@ openpyxl>=3.1
 PyYAML>=6.0
 pytest>=8.0
 pytest-mock>=3.14
+streamlit>=1.35
+plotly>=5.20

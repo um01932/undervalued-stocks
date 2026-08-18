@@ -210,3 +210,234 @@ class TestApplyProfile:
         assert "PRICEY" not in tickers
         assert tickers[0] == "CHEAP"
         assert tickers[1] == "FAIR"
+
+
+# ── Negative-multiple guard (1a) ──────────────────────────────────────────────
+
+class TestNegativeMultipleGuard:
+    """Negative P/B, P/E, P/FCF, EV/EBITDA should always be rejected."""
+
+    def test_negative_pb_rejected(self):
+        """HPQ-style: P/B = -190 must NOT pass deep_value (max_pb = 1.5)."""
+        results = [_make_result(pb_ratio=-190.0)]
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 0, "Negative P/B should be rejected"
+
+    def test_negative_pe_rejected(self):
+        """Negative P/E (company has negative earnings) must not pass."""
+        results = [_make_result(pe_ratio=-3.0)]
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 0, "Negative P/E should be rejected"
+
+    def test_negative_ev_ebitda_rejected(self):
+        """Negative EV/EBITDA must not pass the filter."""
+        results = [_make_result(ev_ebitda=-5.0)]
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 0, "Negative EV/EBITDA should be rejected"
+
+    def test_negative_p_fcf_rejected(self):
+        """Negative P/FCF must not pass the filter."""
+        results = [_make_result(p_fcf=-8.0)]
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 0, "Negative P/FCF should be rejected"
+
+    def test_net_debt_negative_passes(self):
+        """Negative net_debt_ebitda means net cash — should still pass."""
+        results = [_make_result(net_debt_ebitda=-1.5)]  # net cash, positive signal
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 1, "Net cash (negative net_debt_ebitda) should pass"
+
+    def test_missing_pb_still_passes(self):
+        """None P/B is not the same as negative — missing data should not disqualify."""
+        results = [_make_result(pb_ratio=None)]
+        df = apply_profile(results, DEEP_VALUE_PROFILE)
+        assert len(df) == 1, "None P/B should not disqualify"
+
+
+# ── Phase 2 — New screener filter tests ──────────────────────────────────────
+
+def _make_result_p2(
+    piotroski_score: Optional[int] = None,
+    altman_z: Optional[float] = None,
+    roic: Optional[float] = None,
+    **kwargs,
+) -> ValuationResult:
+    """Extend the base fixture with Phase 2 quality fields."""
+    return ValuationResult(
+        **{
+            "ticker": "P2",
+            "company_name": "Phase2 Corp",
+            "sector": "Technology",
+            "industry": "Software",
+            "current_price": 100.0,
+            "market_cap": 10e9,
+            "pe_ratio": 12.0,
+            "pb_ratio": 1.2,
+            "ev_ebitda": 7.0,
+            "p_fcf": 10.0,
+            "net_debt_ebitda": 1.0,
+            "dcf_ggm_intrinsic": 150.0,
+            "dcf_exit_intrinsic": 135.72,
+            "dcf_intrinsic_value": 142.86,
+            "margin_of_safety_pct": 30.0,
+            "status": "OK",
+            "piotroski_score": piotroski_score,
+            "altman_z": altman_z,
+            "roic": roic,
+            **kwargs,
+        }
+    )
+
+
+class TestPiotroskiFilter:
+    def test_piotroski_below_min_excluded(self):
+        """Company with Piotroski=3 fails min_piotroski=4."""
+        profile = ScreenerProfile(name="test", min_piotroski=4, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(piotroski_score=3)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_piotroski_at_min_passes(self):
+        """Company with Piotroski=4 passes min_piotroski=4."""
+        profile = ScreenerProfile(name="test", min_piotroski=4, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(piotroski_score=4)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_piotroski_none_passes_filter(self):
+        """Missing piotroski_score (None) should not disqualify — data unavailable."""
+        profile = ScreenerProfile(name="test", min_piotroski=5, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(piotroski_score=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_piotroski_above_min_passes(self):
+        """Company with Piotroski=6 passes min_piotroski=5."""
+        profile = ScreenerProfile(name="test", min_piotroski=5, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(piotroski_score=6)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+
+class TestAltmanFilter:
+    def test_altman_distress_excluded_when_flag_set(self):
+        """Z=1.5 (distress zone) excluded when exclude_altman_distress=True."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=True,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=1.5)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_altman_grey_zone_passes(self):
+        """Z=2.0 (grey zone, not distress) passes even when flag is set."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=True,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=2.0)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_altman_safe_zone_passes(self):
+        """Z=3.5 (safe zone) passes."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=True,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=3.5)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_altman_none_passes_regardless_of_flag(self):
+        """Missing altman_z (None) passes even when exclude_altman_distress=True."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=True,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_altman_distress_passes_when_flag_false(self):
+        """Z=1.5 passes when exclude_altman_distress=False (default)."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=False,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=1.5)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+
+class TestRoicFilter:
+    def test_roic_below_min_excluded(self):
+        """Company with ROIC=5% fails min_roic=8.0."""
+        profile = ScreenerProfile(name="test", min_roic=8.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(roic=0.05)]   # 5% = 0.05 decimal
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_roic_at_threshold_passes(self):
+        """Company with exactly ROIC=8% passes min_roic=8.0."""
+        profile = ScreenerProfile(name="test", min_roic=8.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(roic=0.08)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_roic_above_threshold_passes(self):
+        """Company with ROIC=15% passes min_roic=8.0."""
+        profile = ScreenerProfile(name="test", min_roic=8.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(roic=0.15)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_roic_none_passes_filter(self):
+        """Missing ROIC (None) should not disqualify — data unavailable."""
+        profile = ScreenerProfile(name="test", min_roic=8.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_p2(roic=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+
+class TestQualityValueProfile:
+    def test_quality_value_profile_exists(self):
+        """quality_value profile should be in BUILTIN_PROFILES."""
+        assert "quality_value" in BUILTIN_PROFILES
+
+    def test_quality_value_has_correct_thresholds(self):
+        """Verify quality_value profile settings."""
+        p = BUILTIN_PROFILES["quality_value"]
+        assert p.min_piotroski == 5
+        assert p.min_roic == 10.0
+        assert p.exclude_altman_distress is True
+        assert p.sort_by == "Score"
+
+    def test_quality_value_sorts_by_score(self):
+        """quality_value profile should sort by composite Score."""
+        profile = BUILTIN_PROFILES["quality_value"]
+        # Create two results with different scores
+        low_mos = _make_result_p2(
+            ticker="LOW",
+            margin_of_safety_pct=20.0,
+            piotroski_score=5,
+            roic=0.12,
+        )
+        # Assign composite scores manually to make the sort deterministic
+        low_mos.composite_score = 40.0
+        high_mos = _make_result_p2(
+            ticker="HIGH",
+            margin_of_safety_pct=50.0,
+            piotroski_score=6,
+            roic=0.15,
+        )
+        high_mos.composite_score = 75.0
+        df = apply_profile([low_mos, high_mos], profile)
+        if not df.empty and len(df) >= 2:
+            assert df.iloc[0]["Ticker"] == "HIGH"

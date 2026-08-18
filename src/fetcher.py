@@ -23,10 +23,13 @@ Cache schema (data/cache.duckdb):
                 total_assets, total_liabilities, total_debt,
                 total_cash, stockholders_equity)
 
+  price_history(ticker, date PK, fetched_at, close)
+
 TTL constants:
-  INFO_TTL        = 30 days
-  FINANCIALS_TTL  =  7 days
-  PRICE_TTL       =  1 day  (applied to current_price inside info)
+  INFO_TTL           = 30 days
+  FINANCIALS_TTL     =  7 days
+  PRICE_TTL          =  1 day  (applied to current_price inside info)
+  PRICE_HISTORY_TTL  = 30 days (historical prices don't change)
 """
 
 from __future__ import annotations
@@ -54,9 +57,12 @@ __all__ = [
     "TickerData",
     "fetch_ticker",
     "fetch_universe",
+    "fetch_risk_free_rate",
+    "fetch_historical_prices",
     "INFO_TTL",
     "FINANCIALS_TTL",
     "PRICE_TTL",
+    "PRICE_HISTORY_TTL",
 ]
 
 logger = logging.getLogger(__name__)
@@ -66,6 +72,7 @@ logger = logging.getLogger(__name__)
 INFO_TTL = timedelta(days=30)
 FINANCIALS_TTL = timedelta(days=7)
 PRICE_TTL = timedelta(days=1)
+PRICE_HISTORY_TTL = timedelta(days=30)
 
 # ── yfinance → schema field maps ──────────────────────────────────────────────
 
@@ -86,6 +93,13 @@ INFO_FIELD_MAP: dict[str, str] = {
     "industry":             "industry",
     "fiftyTwoWeekLow":      "week52_low",
     "fiftyTwoWeekHigh":     "week52_high",
+    "dividendYield":        "dividend_yield",
+    "dividendRate":         "dividend_rate",
+    "beta":                 "beta",
+    "returnOnEquity":       "roe",
+    "returnOnAssets":       "roa",
+    "grossMargins":         "gross_margin",
+    "operatingMargins":     "operating_margin",
 }
 
 # yfinance cashflow row-name variants to handle version differences
@@ -143,7 +157,32 @@ CREATE TABLE IF NOT EXISTS ticker_info (
     sector                TEXT,
     industry              TEXT,
     week52_low            DOUBLE,
-    week52_high           DOUBLE
+    week52_high           DOUBLE,
+    dividend_yield        DOUBLE,
+    dividend_rate         DOUBLE,
+    beta                  DOUBLE,
+    roe                   DOUBLE,
+    roa                   DOUBLE,
+    gross_margin          DOUBLE,
+    operating_margin      DOUBLE
+);
+"""
+
+_CREATE_MACRO_DATA = """
+CREATE TABLE IF NOT EXISTS macro_data (
+    key        TEXT PRIMARY KEY,
+    value      DOUBLE NOT NULL,
+    fetched_at TIMESTAMP NOT NULL
+);
+"""
+
+_CREATE_PRICE_HISTORY = """
+CREATE TABLE IF NOT EXISTS price_history (
+    ticker     TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    close      DOUBLE NOT NULL,
+    fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (ticker, date)
 );
 """
 
@@ -206,14 +245,19 @@ class CacheStore:
         self._conn_obj.execute(_CREATE_CASHFLOW)
         self._conn_obj.execute(_CREATE_FINANCIALS)
         self._conn_obj.execute(_CREATE_BALANCE_SHEET)
-        # Migrate: add 52-week columns if they don't exist yet (old cache)
+        self._conn_obj.execute(_CREATE_MACRO_DATA)
+        self._conn_obj.execute(_CREATE_PRICE_HISTORY)
+        # Migrate: add new columns to existing caches that pre-date this schema
         existing_cols = {
             row[0] for row in self._conn_obj.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_name = 'ticker_info'"
             ).fetchall()
         }
-        for col in ("week52_low", "week52_high"):
+        for col in (
+            "week52_low", "week52_high", "dividend_yield", "dividend_rate",
+            "beta", "roe", "roa", "gross_margin", "operating_margin",
+        ):
             if col not in existing_cols:
                 self._conn_obj.execute(
                     f"ALTER TABLE ticker_info ADD COLUMN {col} DOUBLE"
@@ -256,8 +300,10 @@ class CacheStore:
                     (ticker, fetched_at, current_price, market_cap, trailing_pe,
                      price_to_book, enterprise_to_ebitda, peg_ratio, free_cashflow,
                      total_debt, total_cash, ebitda, shares_outstanding,
-                     short_name, sector, industry, week52_low, week52_high)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     short_name, sector, industry, week52_low, week52_high,
+                     dividend_yield, dividend_rate,
+                     beta, roe, roa, gross_margin, operating_margin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (ticker) DO UPDATE SET
                     fetched_at            = EXCLUDED.fetched_at,
                     current_price         = EXCLUDED.current_price,
@@ -275,7 +321,14 @@ class CacheStore:
                     sector                = EXCLUDED.sector,
                     industry              = EXCLUDED.industry,
                     week52_low            = EXCLUDED.week52_low,
-                    week52_high           = EXCLUDED.week52_high
+                    week52_high           = EXCLUDED.week52_high,
+                    dividend_yield        = EXCLUDED.dividend_yield,
+                    dividend_rate         = EXCLUDED.dividend_rate,
+                    beta                  = EXCLUDED.beta,
+                    roe                   = EXCLUDED.roe,
+                    roa                   = EXCLUDED.roa,
+                    gross_margin          = EXCLUDED.gross_margin,
+                    operating_margin      = EXCLUDED.operating_margin
                 """,
                 [
                     ticker, now,
@@ -287,6 +340,10 @@ class CacheStore:
                     payload.get("shares_outstanding"), payload.get("short_name"),
                     payload.get("sector"), payload.get("industry"),
                     payload.get("week52_low"), payload.get("week52_high"),
+                    payload.get("dividend_yield"), payload.get("dividend_rate"),
+                    payload.get("beta"), payload.get("roe"),
+                    payload.get("roa"), payload.get("gross_margin"),
+                    payload.get("operating_margin"),
                 ],
             )
 
@@ -378,6 +435,89 @@ class CacheStore:
     def _table_columns(self, table: str) -> tuple[list[str], str]:
         cols = self._COLUMNS[table]
         return cols, ", ".join(["?"] * len(cols))
+
+    # ── Macro data ────────────────────────────────────────────────────────────
+
+    def get_macro(self, key: str, ttl: timedelta) -> Optional[float]:
+        """Return cached macro value if within TTL, else None."""
+        with self._lock:
+            row = self._conn_obj.execute(
+                "SELECT value, fetched_at FROM macro_data WHERE key = ?", [key]
+            ).fetchone()
+        if row is None:
+            return None
+        value, fetched_at = row
+        if not isinstance(fetched_at, datetime):
+            fetched_at = datetime.fromisoformat(str(fetched_at))
+        fetched_at = fetched_at.replace(tzinfo=None)
+        if _utcnow() - fetched_at > ttl:
+            return None
+        return float(value)
+
+    def set_macro(self, key: str, value: float) -> None:
+        """Upsert a macro data value."""
+        now = _utcnow()
+        with self._lock:
+            self._conn_obj.execute(
+                """
+                INSERT INTO macro_data (key, value, fetched_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (key) DO UPDATE SET
+                    value      = EXCLUDED.value,
+                    fetched_at = EXCLUDED.fetched_at
+                """,
+                [key, value, now],
+            )
+
+    # ── Price history ─────────────────────────────────────────────────────────
+
+    def get_price_history(self, ticker: str, dates: list[str]) -> dict[str, float]:
+        """
+        Return cached close prices for the requested dates that are still fresh.
+
+        Args:
+            ticker: Ticker symbol.
+            dates:  List of date strings (YYYY-MM-DD).
+
+        Returns:
+            Dict of {date_str: close_price} for all cached & fresh entries.
+            Dates that are missing or stale are omitted.
+        """
+        if not dates:
+            return {}
+        cutoff = _utcnow() - PRICE_HISTORY_TTL
+        placeholders = ", ".join(["?"] * len(dates))
+        with self._lock:
+            rows = self._conn_obj.execute(
+                f"SELECT date, close FROM price_history "
+                f"WHERE ticker = ? AND date IN ({placeholders}) AND fetched_at >= ?",
+                [ticker, *dates, cutoff],
+            ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def set_price_history(self, ticker: str, prices: dict[str, float]) -> None:
+        """
+        Upsert close prices for the given ticker.
+
+        Args:
+            ticker: Ticker symbol.
+            prices: Dict of {date_str: close_price}.
+        """
+        if not prices:
+            return
+        now = _utcnow()
+        with self._lock:
+            for date_str, close in prices.items():
+                self._conn_obj.execute(
+                    """
+                    INSERT INTO price_history (ticker, date, close, fetched_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (ticker, date) DO UPDATE SET
+                        close      = EXCLUDED.close,
+                        fetched_at = EXCLUDED.fetched_at
+                    """,
+                    [ticker, date_str, close, now],
+                )
 
 
 # ── DataFrame → row-dict conversion ──────────────────────────────────────────
@@ -485,12 +625,141 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+# Text fields that must not be coerced to float
+_TEXT_INFO_FIELDS = frozenset({"shortName", "sector", "industry"})
+
+
 def _extract_info(raw_info: dict[str, Any]) -> dict[str, Any]:
     """Map yfinance info dict keys to our schema column names."""
     return {schema_col: _safe_float(raw_info.get(yf_key))
-            if yf_key not in ("shortName", "sector", "industry")
+            if yf_key not in _TEXT_INFO_FIELDS
             else raw_info.get(yf_key)
             for yf_key, schema_col in INFO_FIELD_MAP.items()}
+
+
+# ── Risk-free rate fetch ──────────────────────────────────────────────────────
+
+def fetch_risk_free_rate(cache: CacheStore) -> float:
+    """Fetch current US 10Y Treasury yield (^TNX) via yfinance. Cache for 1 day.
+
+    Returns the yield as a decimal (e.g. 0.045 for 4.5%).
+    Falls back to 4.5% if the API call fails.
+    """
+    cached = cache.get_macro("us_10y_yield", timedelta(days=1))
+    if cached is not None:
+        return cached / 100.0  # stored as percent (e.g. 4.5), convert to decimal
+
+    try:
+        tkr = yf.Ticker("^TNX")
+        price = tkr.info.get("regularMarketPrice") or tkr.fast_info.get("lastPrice")
+        if price and price > 0:
+            rate = price / 100.0
+            cache.set_macro("us_10y_yield", price)  # store as percent
+            return rate
+    except Exception:
+        pass
+    return 0.045  # fallback: 4.5%
+
+
+# ── Historical price fetch ────────────────────────────────────────────────────
+
+def fetch_historical_prices(
+    tickers: list[str],
+    dates: list[str],
+    cache: CacheStore,
+) -> dict[str, dict[str, float]]:
+    """
+    Fetch historical close prices for a list of tickers on specific dates.
+
+    Cache-first: checks DuckDB cache per ticker/date (TTL 30 days).
+    Batch-fetches missing dates via ``yfinance.download`` for each ticker.
+
+    Args:
+        tickers: List of ticker symbols (including benchmark, e.g. "^GSPC").
+        dates:   List of date strings ("YYYY-MM-DD") needed.
+        cache:   Shared CacheStore instance.
+
+    Returns:
+        ``{ticker: {date_str: close_price}}``.
+        Tickers with no data are omitted from the result with a warning.
+    """
+    from datetime import date as date_type
+    import warnings
+
+    if not tickers or not dates:
+        return {}
+
+    sorted_dates = sorted(dates)
+    start_dt = sorted_dates[0]
+    # end is exclusive in yfinance download — add 5 days to capture the last date
+    end_dt_obj = datetime.strptime(sorted_dates[-1], "%Y-%m-%d") + timedelta(days=5)
+    end_dt = end_dt_obj.strftime("%Y-%m-%d")
+
+    result: dict[str, dict[str, float]] = {}
+
+    for ticker in tickers:
+        cached = cache.get_price_history(ticker, dates)
+        missing_dates = [d for d in dates if d not in cached]
+
+        if missing_dates:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    df = yf.download(
+                        ticker,
+                        start=start_dt,
+                        end=end_dt,
+                        auto_adjust=True,
+                        progress=False,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to download price history for %s: %s", ticker, exc)
+                df = pd.DataFrame()
+
+            if df is not None and not df.empty:
+                # Flatten MultiIndex columns if present (single ticker returns plain columns)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                close_col = next(
+                    (c for c in df.columns if str(c).lower() in ("close", "adj close")),
+                    None,
+                )
+                fetched: dict[str, float] = {}
+                if close_col is not None:
+                    for idx, price_val in df[close_col].items():
+                        date_str = str(idx)[:10]
+                        f = _safe_float(price_val)
+                        if f is not None:
+                            fetched[date_str] = f
+
+                if fetched:
+                    cache.set_price_history(ticker, fetched)
+                    # Find closest available date for each missing date
+                    available = sorted(fetched.keys())
+                    for d in missing_dates:
+                        if d in fetched:
+                            cached[d] = fetched[d]
+                        else:
+                            # Use the closest prior date within 7 days
+                            prior = [a for a in available if a <= d]
+                            if prior and (
+                                datetime.strptime(d, "%Y-%m-%d")
+                                - datetime.strptime(prior[-1], "%Y-%m-%d")
+                            ).days <= 7:
+                                cached[d] = fetched[prior[-1]]
+            else:
+                logger.warning(
+                    "No price history data returned for %s. Skipping.", ticker
+                )
+        else:
+            # All dates cached — also fill in any nearest-date lookups for dates
+            # that may have been stored under a slightly different trading-day date.
+            pass
+
+        if cached:
+            result[ticker] = cached
+
+    return result
 
 
 # ── Single-ticker fetch with retry ───────────────────────────────────────────

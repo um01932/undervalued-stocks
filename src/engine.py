@@ -31,6 +31,12 @@ __all__ = [
     "compute_multiples",
     "compute_dcf_ggm",
     "compute_dcf_exit",
+    "compute_dcf_ddm",
+    "compute_piotroski",
+    "compute_altman_z",
+    "compute_roic",
+    "compute_wacc",
+    "compute_sustainable_growth",
     "evaluate",
 ]
 
@@ -85,8 +91,32 @@ class ValuationResult(BaseModel):
 
     status: Literal["OK", "INSUFFICIENT_DATA", "VALUE_TRAP"] = "INSUFFICIENT_DATA"
 
+    # Sector routing metadata
+    sector_excluded: bool = False                  # True when DCF was skipped (financial sector)
+    dcf_model_used: Optional[str] = None           # "GGM", "Exit", "GGM+Exit", "DDM", or None
+
+    # Quality metrics (Phase 2)
+    piotroski_score: Optional[int] = None          # 0–7 (F6/F7 skipped); None = unavailable/financial
+    altman_z: Optional[float] = None               # Z-score; None = unavailable/financial
+    roic: Optional[float] = None                   # Return on Invested Capital (decimal); None = unavailable
+    composite_score: Optional[float] = None        # 0–100 composite rank score
+
+    # Dynamic WACC (Phase 3)
+    wacc_used: Optional[float] = None              # Effective WACC applied to this ticker's DCF
+    growth_used: Optional[float] = None            # Effective growth rate applied to this ticker's DCF
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_FINANCIAL_SECTORS: frozenset[str] = frozenset({"Financial Services", "Insurance"})
+
+
+def _is_financial_sector(sector: Optional[str]) -> bool:
+    """Return True if sector is one where DCF (FCF/EBITDA-based) is unreliable."""
+    if sector is None:
+        return False
+    return sector in _FINANCIAL_SECTORS
+
 
 def _safe_div(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
     """Return numerator / denominator, or None if either is None/zero/NaN."""
@@ -293,16 +323,341 @@ def _is_value_trap(data: TickerData, net_debt_ebitda: Optional[float]) -> bool:
     return False
 
 
+# ── DCF — Dividend Discount Model (DDM / Gordon Growth) ──────────────────────
+
+
+def compute_dcf_ddm(data: TickerData, params: DCFParams) -> Optional[float]:
+    """
+    Compute intrinsic value per share using the Dividend Discount Model (DDM).
+
+    Intended for financial-sector companies where FCF/EBITDA-based DCF is
+    unreliable.  Uses the Gordon Growth Model formula on dividends:
+
+        P = D1 / (r - g)
+        D1 = dividend_rate * (1 + g)
+        g  = min(params.growth_rate, 0.05)   # cap DDM growth at 5%
+        r  = params.discount_rate
+
+    Returns:
+        Intrinsic value per share, or None if dividend_rate is missing or <= 0.
+    """
+    dividend_rate = _safe_val(data.info.get("dividend_rate"))
+    if dividend_rate is None or dividend_rate <= 0:
+        return None
+
+    r = params.discount_rate
+    g = min(params.growth_rate, 0.05)
+
+    if r <= g:
+        logger.warning(
+            "%s: DDM skipped — discount_rate (%s) <= growth_rate (%s).",
+            data.ticker, r, g,
+        )
+        return None
+
+    d1 = dividend_rate * (1 + g)
+    return d1 / (r - g)
+
+
+# ── Piotroski F-Score ─────────────────────────────────────────────────────────
+
+
+def compute_piotroski(data: TickerData) -> Optional[int]:
+    """
+    Compute the Piotroski F-Score (max 7 achievable — F6 and F7 are skipped).
+
+    Requires at least 2 years of complete data from financials, cashflow, and
+    balance_sheet.  Returns None for financial-sector companies (banks/insurers
+    have different accounting) and when fewer than 2 years of data are available.
+
+    Signals implemented (1 point each):
+      Profitability:
+        F1 — ROA > 0
+        F2 — Operating cash flow > 0
+        F3 — ROA increasing year-over-year
+        F4 — Accruals < 0  (CFO/assets > net_income/assets)
+      Leverage & Liquidity:
+        F5 — Leverage (total_debt/assets) falling year-over-year
+        F6 — SKIPPED: current_assets/current_liabilities not stored (awards 0)
+        F7 — SKIPPED: shares_outstanding has no historical data (awards 0)
+      Operating Efficiency:
+        F8 — Gross margin improving year-over-year
+        F9 — Asset turnover improving year-over-year
+    """
+    sector = data.info.get("sector")
+    if _is_financial_sector(sector):
+        return None  # F-score unreliable for banks/insurers
+
+    # Build year-indexed dicts keyed by period_date for alignment
+    def _rows_by_date(rows: list[dict]) -> dict[str, dict]:
+        return {r["period_date"]: r for r in rows if r.get("period_date")}
+
+    fin_by_date = _rows_by_date(data.financials)
+    cf_by_date  = _rows_by_date(data.cashflow)
+    bs_by_date  = _rows_by_date(data.balance_sheet)
+
+    # Common dates across all three statements, sorted descending (most recent first)
+    common_dates = sorted(
+        set(fin_by_date) & set(cf_by_date) & set(bs_by_date),
+        reverse=True,
+    )
+
+    if len(common_dates) < 2:
+        return None  # need at least current year + prior year
+
+    def _get(rows_by_date: dict, date: str, key: str) -> Optional[float]:
+        return _safe_val(rows_by_date.get(date, {}).get(key))
+
+    # Current year (index 0) and prior year (index 1)
+    d0, d1 = common_dates[0], common_dates[1]
+
+    net_income_0    = _get(fin_by_date, d0, "net_income")
+    net_income_1    = _get(fin_by_date, d1, "net_income")
+    total_revenue_0 = _get(fin_by_date, d0, "total_revenue")
+    total_revenue_1 = _get(fin_by_date, d1, "total_revenue")
+    gross_profit_0  = _get(fin_by_date, d0, "gross_profit")
+    gross_profit_1  = _get(fin_by_date, d1, "gross_profit")
+
+    opcf_0          = _get(cf_by_date, d0, "operating_cashflow")
+
+    total_assets_0  = _get(bs_by_date, d0, "total_assets")
+    total_assets_1  = _get(bs_by_date, d1, "total_assets")
+    total_debt_0    = _get(bs_by_date, d0, "total_debt")
+    total_debt_1    = _get(bs_by_date, d1, "total_debt")
+
+    # ROA helpers
+    roa_0 = _safe_div(net_income_0, total_assets_0)
+    roa_1 = _safe_div(net_income_1, total_assets_1)
+
+    score = 0
+
+    # F1: ROA > 0
+    if roa_0 is not None and roa_0 > 0:
+        score += 1
+
+    # F2: Operating cash flow > 0
+    if opcf_0 is not None and opcf_0 > 0:
+        score += 1
+
+    # F3: ROA increasing
+    if roa_0 is not None and roa_1 is not None and roa_0 > roa_1:
+        score += 1
+
+    # F4: Accruals < 0 — CFO/assets > net_income/assets (cash earnings beat accruals)
+    cfo_assets_0 = _safe_div(opcf_0, total_assets_0)
+    if cfo_assets_0 is not None and roa_0 is not None and cfo_assets_0 > roa_0:
+        score += 1
+
+    # F5: Leverage falling (total_debt / total_assets decreased)
+    lev_0 = _safe_div(total_debt_0, total_assets_0)
+    lev_1 = _safe_div(total_debt_1, total_assets_1)
+    if lev_0 is not None and lev_1 is not None and lev_0 < lev_1:
+        score += 1
+
+    # F6: SKIPPED — current_assets / current_liabilities not stored → 0 points
+    # F7: SKIPPED — shares_outstanding has no annual history → 0 points
+
+    # F8: Gross margin improving
+    gm_0 = _safe_div(gross_profit_0, total_revenue_0)
+    gm_1 = _safe_div(gross_profit_1, total_revenue_1)
+    if gm_0 is not None and gm_1 is not None and gm_0 > gm_1:
+        score += 1
+
+    # F9: Asset turnover improving (total_revenue / total_assets)
+    at_0 = _safe_div(total_revenue_0, total_assets_0)
+    at_1 = _safe_div(total_revenue_1, total_assets_1)
+    if at_0 is not None and at_1 is not None and at_0 > at_1:
+        score += 1
+
+    return score
+
+
+# ── Altman Z-Score ────────────────────────────────────────────────────────────
+
+
+def compute_altman_z(data: TickerData) -> Optional[float]:
+    """
+    Compute the Altman Z-Score using available data (proxies where needed).
+
+    Skipped for financial-sector companies (returns None).
+
+    Formula:  Z = 1.2*X1 + 1.4*X2 + 3.3*X3 + 0.6*X4 + 1.0*X5
+
+    Components (with proxies for missing balance-sheet sub-items):
+      X1 = (stockholders_equity * 0.4) / total_assets
+             (proxy for working capital / total assets; avoids needing current items)
+      X2 = stockholders_equity / total_assets
+             (proxy for retained earnings / total assets)
+      X3 = ebit / total_assets
+      X4 = market_cap / total_liabilities
+      X5 = total_revenue / total_assets
+
+    Interpretation:
+      Z > 2.99   → Safe zone
+      1.81–2.99  → Grey zone
+      Z < 1.81   → Distress zone
+    """
+    sector = data.info.get("sector")
+    if _is_financial_sector(sector):
+        return None
+
+    # Most recent balance sheet row
+    bs_rows = sorted(data.balance_sheet, key=lambda r: r.get("period_date", ""), reverse=True)
+    fin_rows = sorted(data.financials, key=lambda r: r.get("period_date", ""), reverse=True)
+
+    if not bs_rows or not fin_rows:
+        return None
+
+    bs  = bs_rows[0]
+    fin = fin_rows[0]
+
+    total_assets        = _safe_val(bs.get("total_assets"))
+    total_liabilities   = _safe_val(bs.get("total_liabilities"))
+    stockholders_equity = _safe_val(bs.get("stockholders_equity"))
+    ebit                = _safe_val(fin.get("ebit"))
+    total_revenue       = _safe_val(fin.get("total_revenue"))
+    market_cap          = _safe_val(data.info.get("market_cap"))
+
+    # All components required
+    if any(v is None for v in (total_assets, total_liabilities, stockholders_equity,
+                               ebit, total_revenue, market_cap)):
+        return None
+    if total_assets == 0 or total_liabilities == 0:
+        return None
+
+    x1 = (stockholders_equity * 0.4) / total_assets   # working capital proxy
+    x2 = stockholders_equity / total_assets             # retained earnings proxy
+    x3 = ebit / total_assets
+    x4 = market_cap / total_liabilities
+    x5 = total_revenue / total_assets
+
+    z = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 1.0 * x5
+    return None if math.isnan(z) or math.isinf(z) else round(z, 4)
+
+
+# ── ROIC ──────────────────────────────────────────────────────────────────────
+
+
+def compute_roic(data: TickerData) -> Optional[float]:
+    """
+    Compute Return on Invested Capital (ROIC).
+
+    Skipped for financial-sector companies (returns None).
+
+    Formula:
+      NOPAT          = ebit * (1 - 0.21)           [US corporate tax rate 21%]
+      Invested Capital = total_assets - total_cash   [simplified; avoids current liabilities]
+      ROIC           = NOPAT / Invested Capital
+
+    Returns as a decimal (e.g. 0.15 = 15%).  Returns None if data is missing.
+    """
+    sector = data.info.get("sector")
+    if _is_financial_sector(sector):
+        return None
+
+    fin_rows = sorted(data.financials, key=lambda r: r.get("period_date", ""), reverse=True)
+    bs_rows  = sorted(data.balance_sheet, key=lambda r: r.get("period_date", ""), reverse=True)
+
+    if not fin_rows or not bs_rows:
+        return None
+
+    ebit         = _safe_val(fin_rows[0].get("ebit"))
+    total_assets = _safe_val(bs_rows[0].get("total_assets"))
+    total_cash   = _safe_val(bs_rows[0].get("total_cash"))
+
+    if ebit is None or total_assets is None or total_cash is None:
+        return None
+
+    nopat            = ebit * (1 - 0.21)
+    invested_capital = total_assets - total_cash
+
+    roic = _safe_div(nopat, invested_capital)
+    return roic
+
+
+# ── Dynamic WACC ─────────────────────────────────────────────────────────────
+
+_ERP = 0.055  # Equity Risk Premium — US historical average
+
+
+def compute_wacc(data: TickerData, rf_rate: float, params: DCFParams) -> float:
+    """
+    Compute a company-specific WACC using CAPM for cost of equity.
+
+    Formula:
+        ke   = rf_rate + beta * ERP
+        kd   = 0.05  (proxy — interest expense not stored)
+        E    = market_cap
+        D    = max(total_debt - total_cash, 0)
+        WACC = (E/V)*ke + (D/V)*kd*(1-T)
+
+    Returns a value clamped to [0.06, 0.18].
+    Falls back to params.discount_rate if V <= 0.
+    """
+    beta_raw = _safe_val(data.info.get("beta"))
+    beta = beta_raw if beta_raw is not None else 1.0
+    ke = rf_rate + beta * _ERP
+
+    market_cap = _safe_val(data.info.get("market_cap")) or 0.0
+    total_debt = _safe_val(data.info.get("total_debt")) or 0.0
+    total_cash = _safe_val(data.info.get("total_cash")) or 0.0
+
+    kd = 0.05  # proxy: 5% cost of debt
+    E = market_cap
+    D = max(total_debt - total_cash, 0.0)
+    V = E + D
+
+    if V <= 0:
+        return params.discount_rate
+
+    T = 0.21  # US corporate tax rate
+    wacc = (E / V) * ke + (D / V) * kd * (1 - T)
+    return max(0.06, min(0.18, wacc))
+
+
+def compute_sustainable_growth(data: TickerData, params: DCFParams) -> float:
+    """
+    Compute a sustainable growth rate from ROIC and reinvestment rate.
+
+    Formula:
+        reinvestment_rate = 1 - (FCF / net_income)   [clamped to [0, 1]]
+        g = ROIC * reinvestment_rate                  [clamped to [0.02, 0.12]]
+
+    Falls back to params.growth_rate when ROIC is unavailable/non-positive
+    or when net_income is unavailable/non-positive.
+    """
+    roic_val = compute_roic(data)
+    if roic_val is None or roic_val <= 0:
+        return params.growth_rate
+
+    # Most recent FCF and net income
+    cf_rows = sorted(data.cashflow, key=lambda r: r.get("period_date", ""), reverse=True)
+    fin_rows = sorted(data.financials, key=lambda r: r.get("period_date", ""), reverse=True)
+
+    fcf = _safe_val(cf_rows[0].get("free_cash_flow")) if cf_rows else None
+    net_income = _safe_val(fin_rows[0].get("net_income")) if fin_rows else None
+
+    if net_income is None or net_income <= 0 or fcf is None:
+        return params.growth_rate
+
+    reinvestment_rate = 1.0 - (fcf / net_income)
+    reinvestment_rate = max(0.0, min(1.0, reinvestment_rate))
+
+    g = roic_val * reinvestment_rate
+    return max(0.02, min(0.12, g))
+
+
 # ── Top-level evaluator ───────────────────────────────────────────────────────
 
 
-def evaluate(data: TickerData, params: DCFParams) -> ValuationResult:
+def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> ValuationResult:
     """
     Compute a full ValuationResult for the given ticker.
 
     Steps:
       1. Compute relative multiples.
-      2. Run both DCF methods independently.
+      2. For financial-sector companies: skip GGM/Exit DCF; try DDM instead.
+         For all other companies: run GGM and Exit Multiple DCF independently.
       3. Average DCF results when both succeed; use whichever is available.
       4. Determine status: VALUE_TRAP > INSUFFICIENT_DATA > OK.
       5. Compute Margin of Safety only for OK status.
@@ -318,20 +673,44 @@ def evaluate(data: TickerData, params: DCFParams) -> ValuationResult:
     multiples = compute_multiples(data)
 
     current_price = _safe_val(info.get("current_price"))
+    sector = info.get("sector")
+    financial = _is_financial_sector(sector)
 
-    # Both DCF methods
-    ggm = compute_dcf_ggm(data, params)
-    exit_m = compute_dcf_exit(data, params)
-
-    # Consensus intrinsic value
-    if ggm is not None and exit_m is not None:
-        intrinsic = (ggm + exit_m) / 2.0
-    elif ggm is not None:
-        intrinsic = ggm
-    elif exit_m is not None:
-        intrinsic = exit_m
+    # Dynamic WACC and growth (skipped for financial sector — use params as-is)
+    if financial:
+        params_dynamic = params
     else:
-        intrinsic = None
+        wacc = compute_wacc(data, rf_rate, params)
+        g_sustainable = compute_sustainable_growth(data, params)
+        params_dynamic = params.model_copy(
+            update={"discount_rate": wacc, "growth_rate": g_sustainable}
+        )
+
+    ggm: Optional[float] = None
+    exit_m: Optional[float] = None
+    intrinsic: Optional[float] = None
+    dcf_model_used: Optional[str] = None
+
+    if financial:
+        # Financial-sector companies: use DDM only
+        ddm = compute_dcf_ddm(data, params_dynamic)
+        if ddm is not None:
+            intrinsic = ddm
+            dcf_model_used = "DDM"
+    else:
+        # Non-financial companies: run both standard DCF methods
+        ggm = compute_dcf_ggm(data, params_dynamic)
+        exit_m = compute_dcf_exit(data, params_dynamic)
+
+        if ggm is not None and exit_m is not None:
+            intrinsic = (ggm + exit_m) / 2.0
+            dcf_model_used = "GGM+Exit"
+        elif ggm is not None:
+            intrinsic = ggm
+            dcf_model_used = "GGM"
+        elif exit_m is not None:
+            intrinsic = exit_m
+            dcf_model_used = "Exit"
 
     # Status
     is_trap = _is_value_trap(data, multiples.get("net_debt_ebitda"))
@@ -348,13 +727,14 @@ def evaluate(data: TickerData, params: DCFParams) -> ValuationResult:
         mos = (intrinsic - current_price) / intrinsic * 100.0
 
     logger.debug(
-        "%s: status=%s ggm=%.2f exit=%.2f intrinsic=%.2f mos=%.1f%%",
+        "%s: status=%s ggm=%.2f exit=%.2f intrinsic=%.2f mos=%.1f%% model=%s",
         data.ticker,
         status,
         ggm or 0,
         exit_m or 0,
         intrinsic or 0,
         mos or 0,
+        dcf_model_used or "—",
     )
 
     # 52-week range metrics
@@ -366,7 +746,11 @@ def evaluate(data: TickerData, params: DCFParams) -> ValuationResult:
         if price_range > 0:
             price_vs_52w_low_pct = (current_price - week52_low) / price_range * 100.0
 
-    return ValuationResult(
+    piotroski  = compute_piotroski(data)
+    altman_z_v = compute_altman_z(data)
+    roic_v     = compute_roic(data)
+
+    result = ValuationResult(
         ticker=data.ticker,
         company_name=info.get("short_name"),
         sector=info.get("sector"),
@@ -387,4 +771,14 @@ def evaluate(data: TickerData, params: DCFParams) -> ValuationResult:
         dcf_intrinsic_value=intrinsic,
         margin_of_safety_pct=mos,
         status=status,
+        sector_excluded=financial,
+        dcf_model_used=dcf_model_used,
+        piotroski_score=piotroski,
+        altman_z=altman_z_v,
+        roic=roic_v,
+        wacc_used=None if financial else params_dynamic.discount_rate,
+        growth_used=None if financial else params_dynamic.growth_rate,
     )
+    from src.screener import compute_composite_score  # late import to avoid circular dep
+    result.composite_score = compute_composite_score(result)
+    return result

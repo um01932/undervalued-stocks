@@ -25,6 +25,7 @@ from src.fetcher import (
     fetch_ticker,
     FINANCIALS_TTL,
     INFO_TTL,
+    PRICE_HISTORY_TTL,
 )
 
 
@@ -321,3 +322,169 @@ class TestFetchTicker:
         mock_yf_class.side_effect = Exception("network error")
         result = fetch_ticker("FAIL", cache)
         assert result is None
+
+
+# ── CacheStore — macro data ───────────────────────────────────────────────────
+
+class TestCacheStoreMacroData:
+    def test_set_and_get_macro_within_ttl(self, cache):
+        """set_macro + get_macro within TTL returns the stored value."""
+        cache.set_macro("us_10y_yield", 4.5)
+        result = cache.get_macro("us_10y_yield", timedelta(days=1))
+        assert result == pytest.approx(4.5)
+
+    def test_get_macro_returns_none_for_missing(self, cache):
+        """get_macro for non-existent key returns None."""
+        assert cache.get_macro("nonexistent", timedelta(days=1)) is None
+
+    def test_get_macro_returns_none_when_expired(self, cache):
+        """get_macro returns None when TTL is exceeded."""
+        cache.set_macro("us_10y_yield", 4.5)
+        # Backdate the fetched_at to force expiry
+        expired = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=2)
+        cache._conn().execute(
+            "UPDATE macro_data SET fetched_at = ? WHERE key = 'us_10y_yield'",
+            [expired],
+        )
+        assert cache.get_macro("us_10y_yield", timedelta(days=1)) is None
+
+    def test_set_macro_upserts(self, cache):
+        """set_macro called twice on same key updates the value."""
+        cache.set_macro("us_10y_yield", 4.0)
+        cache.set_macro("us_10y_yield", 4.8)
+        result = cache.get_macro("us_10y_yield", timedelta(days=1))
+        assert result == pytest.approx(4.8)
+
+    def test_multiple_keys_are_independent(self, cache):
+        """Different macro keys do not interfere with each other."""
+        cache.set_macro("us_10y_yield", 4.5)
+        cache.set_macro("us_2y_yield", 5.1)
+        assert cache.get_macro("us_10y_yield", timedelta(days=1)) == pytest.approx(4.5)
+        assert cache.get_macro("us_2y_yield",  timedelta(days=1)) == pytest.approx(5.1)
+
+
+# ── fetch_risk_free_rate ──────────────────────────────────────────────────────
+
+from src.fetcher import fetch_risk_free_rate
+
+
+class TestFetchRiskFreeRate:
+    def test_cache_hit_returns_cached_value(self, cache):
+        """When cache has a fresh value, no yfinance call is made."""
+        cache.set_macro("us_10y_yield", 4.5)  # stored as percent
+        with patch("src.fetcher.yf.Ticker") as mock_yf:
+            result = fetch_risk_free_rate(cache)
+        mock_yf.assert_not_called()
+        assert result == pytest.approx(0.045)  # returned as decimal
+
+    @patch("src.fetcher.yf.Ticker")
+    def test_cache_miss_fetches_from_yfinance(self, mock_yf_class, cache):
+        """On cache miss, fetches ^TNX from yfinance and caches the result."""
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"regularMarketPrice": 4.2}
+        mock_yf_class.return_value = mock_ticker
+
+        result = fetch_risk_free_rate(cache)
+
+        mock_yf_class.assert_called_once_with("^TNX")
+        assert result == pytest.approx(0.042)
+        # Should now be cached
+        cached = cache.get_macro("us_10y_yield", timedelta(days=1))
+        assert cached == pytest.approx(4.2)
+
+    @patch("src.fetcher.yf.Ticker")
+    def test_yfinance_exception_returns_fallback(self, mock_yf_class, cache):
+        """If yfinance raises an exception, fall back to 4.5%."""
+        mock_yf_class.side_effect = Exception("network error")
+        result = fetch_risk_free_rate(cache)
+        assert result == pytest.approx(0.045)
+
+    @patch("src.fetcher.yf.Ticker")
+    def test_yfinance_zero_price_returns_fallback(self, mock_yf_class, cache):
+        """If yfinance returns 0 or None price, fall back to 4.5%."""
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"regularMarketPrice": 0}
+        mock_ticker.fast_info = {"lastPrice": 0}
+        mock_yf_class.return_value = mock_ticker
+        result = fetch_risk_free_rate(cache)
+        assert result == pytest.approx(0.045)
+
+    @patch("src.fetcher.yf.Ticker")
+    def test_result_is_decimal(self, mock_yf_class, cache):
+        """fetch_risk_free_rate always returns a decimal (not percent)."""
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"regularMarketPrice": 5.0}
+        mock_yf_class.return_value = mock_ticker
+        result = fetch_risk_free_rate(cache)
+        # 5.0% → 0.05
+        assert result < 1.0, "rf_rate must be a decimal, not a percentage"
+
+
+# ── CacheStore — price_history ────────────────────────────────────────────────
+
+class TestCacheStorePriceHistory:
+    def test_set_and_get_price_history_within_ttl(self, cache):
+        """set_price_history + get_price_history returns stored prices when fresh."""
+        prices = {"2020-01-02": 300.0, "2021-01-02": 380.0}
+        cache.set_price_history("AAPL", prices)
+
+        result = cache.get_price_history("AAPL", ["2020-01-02", "2021-01-02"])
+        assert result["2020-01-02"] == pytest.approx(300.0)
+        assert result["2021-01-02"] == pytest.approx(380.0)
+
+    def test_get_price_history_missing_ticker_returns_empty(self, cache):
+        """Querying a ticker with no price data returns an empty dict."""
+        result = cache.get_price_history("MISSING", ["2020-01-02"])
+        assert result == {}
+
+    def test_get_price_history_returns_only_requested_dates(self, cache):
+        """Only dates explicitly requested are returned."""
+        prices = {
+            "2020-01-02": 100.0,
+            "2021-01-02": 110.0,
+            "2022-01-02": 120.0,
+        }
+        cache.set_price_history("TSLA", prices)
+        result = cache.get_price_history("TSLA", ["2021-01-02"])
+        assert list(result.keys()) == ["2021-01-02"]
+        assert result["2021-01-02"] == pytest.approx(110.0)
+
+    def test_get_price_history_returns_none_when_expired(self, cache):
+        """Prices older than PRICE_HISTORY_TTL are not returned."""
+        prices = {"2020-01-02": 100.0}
+        cache.set_price_history("AAPL", prices)
+
+        # Backdate the fetched_at to force expiry
+        expired = datetime.now(UTC).replace(tzinfo=None) - PRICE_HISTORY_TTL - timedelta(seconds=1)
+        cache._conn().execute(
+            "UPDATE price_history SET fetched_at = ? WHERE ticker = 'AAPL'",
+            [expired],
+        )
+        result = cache.get_price_history("AAPL", ["2020-01-02"])
+        assert result == {}
+
+    def test_set_price_history_upserts(self, cache):
+        """Setting a price twice for the same date updates the value."""
+        cache.set_price_history("AAPL", {"2020-01-02": 100.0})
+        cache.set_price_history("AAPL", {"2020-01-02": 150.0})  # update
+        result = cache.get_price_history("AAPL", ["2020-01-02"])
+        assert result["2020-01-02"] == pytest.approx(150.0)
+
+    def test_set_price_history_empty_dict_is_noop(self, cache):
+        """Calling set_price_history with an empty dict does not raise."""
+        cache.set_price_history("AAPL", {})  # should not raise
+        result = cache.get_price_history("AAPL", ["2020-01-02"])
+        assert result == {}
+
+    def test_get_price_history_empty_dates_returns_empty(self, cache):
+        """Calling get_price_history with an empty dates list returns empty dict."""
+        cache.set_price_history("AAPL", {"2020-01-02": 100.0})
+        result = cache.get_price_history("AAPL", [])
+        assert result == {}
+
+    def test_multiple_tickers_are_independent(self, cache):
+        """Prices for different tickers are stored independently."""
+        cache.set_price_history("AAPL", {"2020-01-02": 300.0})
+        cache.set_price_history("MSFT", {"2020-01-02": 160.0})
+        assert cache.get_price_history("AAPL", ["2020-01-02"])["2020-01-02"] == pytest.approx(300.0)
+        assert cache.get_price_history("MSFT", ["2020-01-02"])["2020-01-02"] == pytest.approx(160.0)

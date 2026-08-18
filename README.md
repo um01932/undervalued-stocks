@@ -213,6 +213,25 @@ The script generates a **self-contained HTML file** (no external dependencies) w
 
 ---
 
+## Streamlit Dashboard
+
+```bash
+# Install additional dependencies if not already installed
+pip install streamlit plotly
+
+# Launch the interactive dashboard
+streamlit run dashboard/app.py
+```
+
+Features:
+- Live parameter adjustment via sidebar sliders (DCF growth, WACC, terminal rate, exit multiple)
+- Results table with sortable columns and progress bar for 52w Position
+- Composite Score bar chart + sector distribution pie chart
+- Per-company DCF sensitivity matrix (3×3 WACC × terminal growth)
+- Works with the same DuckDB cache — cached re-runs are instant
+
+---
+
 ## Value Trap Detection
 
 A company is flagged `VALUE_TRAP` and excluded from results if **either** condition is true:
