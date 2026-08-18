@@ -44,6 +44,7 @@ _CONFIG_DIR = Path(__file__).parent.parent / "config"
 _PROFILES_YAML = _CONFIG_DIR / "screener_profiles.yaml"
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 # ── Argument parser ───────────────────────────────────────────────────────────
 
@@ -371,8 +372,8 @@ def _run_backtest_mode(
     profile_name = getattr(args, "profile", "deep_value")
     profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
 
-    console.print(f"\n[bold yellow]⚠  BACKTEST MODE[/bold yellow]  profile=[cyan]{profile_name}[/cyan]  "
-                  f"years={args.backtest_start}–{args.backtest_end}  top_n={args.backtest_top_n}\n")
+    console.print(f"\n[bold yellow]BACKTEST MODE[/bold yellow]  profile=[cyan]{profile_name}[/cyan]  "
+                  f"years={args.backtest_start}-{args.backtest_end}  top_n={args.backtest_top_n}\n")
 
     # Run the backtest
     bt: BacktestResult = run_backtest(
@@ -388,10 +389,10 @@ def _run_backtest_mode(
     )
 
     # ── Print limitations warning ─────────────────────────────────────────────
-    console.print(f"[bold red]{'─' * 70}[/bold red]")
+    console.print(f"[bold red]{'=' * 70}[/bold red]")
     for line in LIMITATIONS.strip().splitlines():
         console.print(f"[dim]{line}[/dim]")
-    console.print(f"[bold red]{'─' * 70}[/bold red]\n")
+    console.print(f"[bold red]{'=' * 70}[/bold red]\n")
 
     if not bt.annual_rows:
         console.print("[yellow]No annual rows were produced. "
@@ -400,7 +401,7 @@ def _run_backtest_mode(
 
     # ── Print annual results table ────────────────────────────────────────────
     table = Table(
-        title=f"Backtest Results — {profile_name} ({bt.start_year}–{bt.end_year})",
+        title=f"Backtest Results - {profile_name} ({bt.start_year}-{bt.end_year})",
         box=box.SIMPLE_HEAVY,
         show_lines=False,
         highlight=True,

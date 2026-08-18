@@ -690,7 +690,12 @@ def fetch_historical_prices(
         return {}
 
     sorted_dates = sorted(dates)
-    start_dt = sorted_dates[0]
+    # Expand download window by 5 days on each side so that dates that fall on
+    # weekends / public holidays (e.g. Jan 2 = Saturday) are bracketed by real
+    # trading days that yfinance will return.
+    start_dt = (
+        datetime.strptime(sorted_dates[0], "%Y-%m-%d") - timedelta(days=5)
+    ).strftime("%Y-%m-%d")
     # end is exclusive in yfinance download — add 5 days to capture the last date
     end_dt_obj = datetime.strptime(sorted_dates[-1], "%Y-%m-%d") + timedelta(days=5)
     end_dt = end_dt_obj.strftime("%Y-%m-%d")
@@ -734,19 +739,35 @@ def fetch_historical_prices(
 
                 if fetched:
                     cache.set_price_history(ticker, fetched)
-                    # Find closest available date for each missing date
+                    # Find closest available trading day for each requested date.
+                    # Searches both prior AND next available dates and picks the
+                    # nearest one within ±5 calendar days (covers weekends + most
+                    # public holidays such as Jan 1 / Jan 2 scenarios).
                     available = sorted(fetched.keys())
                     for d in missing_dates:
                         if d in fetched:
                             cached[d] = fetched[d]
                         else:
-                            # Use the closest prior date within 7 days
+                            d_dt = datetime.strptime(d, "%Y-%m-%d")
                             prior = [a for a in available if a <= d]
-                            if prior and (
-                                datetime.strptime(d, "%Y-%m-%d")
-                                - datetime.strptime(prior[-1], "%Y-%m-%d")
-                            ).days <= 7:
-                                cached[d] = fetched[prior[-1]]
+                            after = [a for a in available if a > d]
+                            best: Optional[str] = None
+                            best_gap = 999
+                            if prior:
+                                gap = (d_dt - datetime.strptime(prior[-1], "%Y-%m-%d")).days
+                                if gap <= 5:
+                                    best, best_gap = prior[-1], gap
+                            if after:
+                                gap = (datetime.strptime(after[0], "%Y-%m-%d") - d_dt).days
+                                if gap <= 5 and gap < best_gap:
+                                    best = after[0]
+                            if best is not None:
+                                cached[d] = fetched[best]
+                            else:
+                                logger.debug(
+                                    "No trading day within ±5 days of %s for %s.",
+                                    d, ticker,
+                                )
             else:
                 logger.warning(
                     "No price history data returned for %s. Skipping.", ticker

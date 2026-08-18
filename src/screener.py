@@ -60,7 +60,7 @@ class ScreenerProfile(BaseModel):
     # Phase 2 — quality filters
     min_piotroski: Optional[int] = None            # None = no filter
     min_roic: Optional[float] = None               # % threshold (e.g. 8.0 for 8%)
-    exclude_altman_distress: bool = False           # exclude Z < 1.81 when True
+    exclude_altman_distress: bool = False           # exclude Z < 1.0 when True (real distress zone; 1.81 is Grey Zone)
 
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_margin_of_safety_pct=20.0,
         min_piotroski=4,          # conservative: F6/F7 missing → max 7 points
         exclude_altman_distress=True,
-        min_roic=8.0,
+        # No ROIC filter — combined with 5 tight multiples + Piotroski already demanding enough
     ),
     "buffett_quality": ScreenerProfile(
         name="buffett_quality",
@@ -87,7 +87,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         max_net_debt_ebitda=1.5,
         min_margin_of_safety_pct=15.0,
         min_piotroski=5,
-        min_roic=12.0,
+        min_roic=10.0,
     ),
     "high_fcf_yield": ScreenerProfile(
         name="high_fcf_yield",
@@ -284,7 +284,7 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
 
     # Altman — only exclude Distress Zone when configured
     if profile.exclude_altman_distress and result.altman_z is not None:
-        if result.altman_z < 1.81:
+        if result.altman_z < 1.0:   # < 1.0 = real financial distress; 1.0-1.81 = grey zone (acceptable)
             return False
 
     # ROIC — None passes (missing data); threshold stored in %, result stored as decimal

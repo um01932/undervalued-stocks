@@ -321,24 +321,24 @@ class TestPiotroskiFilter:
 
 class TestAltmanFilter:
     def test_altman_distress_excluded_when_flag_set(self):
-        """Z=1.5 (distress zone) excluded when exclude_altman_distress=True."""
+        """Z=0.8 (real distress, < 1.0) excluded when exclude_altman_distress=True."""
+        profile = ScreenerProfile(
+            name="test",
+            exclude_altman_distress=True,
+            min_margin_of_safety_pct=20.0,
+        )
+        results = [_make_result_p2(altman_z=0.8)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_altman_grey_zone_passes(self):
+        """Z=1.5 (grey zone, 1.0–1.81) passes even when flag is set (threshold is 1.0)."""
         profile = ScreenerProfile(
             name="test",
             exclude_altman_distress=True,
             min_margin_of_safety_pct=20.0,
         )
         results = [_make_result_p2(altman_z=1.5)]
-        df = apply_profile(results, profile)
-        assert len(df) == 0
-
-    def test_altman_grey_zone_passes(self):
-        """Z=2.0 (grey zone, not distress) passes even when flag is set."""
-        profile = ScreenerProfile(
-            name="test",
-            exclude_altman_distress=True,
-            min_margin_of_safety_pct=20.0,
-        )
-        results = [_make_result_p2(altman_z=2.0)]
         df = apply_profile(results, profile)
         assert len(df) == 1
 

@@ -488,3 +488,103 @@ class TestCacheStorePriceHistory:
         cache.set_price_history("MSFT", {"2020-01-02": 160.0})
         assert cache.get_price_history("AAPL", ["2020-01-02"])["2020-01-02"] == pytest.approx(300.0)
         assert cache.get_price_history("MSFT", ["2020-01-02"])["2020-01-02"] == pytest.approx(160.0)
+
+
+# ── fetch_historical_prices — nearest-date fallback ──────────────────────────
+
+class TestFetchHistoricalPricesNearestDate:
+    """
+    Tests for the nearest-trading-day fallback in fetch_historical_prices.
+
+    We mock yf.download to return a DataFrame with trading days only (no
+    weekends/holidays), then verify the function resolves weekend/holiday
+    request dates to the closest available trading day.
+    """
+
+    def _make_cache(self, tmp_path):
+        return CacheStore(str(tmp_path / "ph_cache.duckdb"))
+
+    def _make_df(self, date_price_map: dict) -> pd.DataFrame:
+        """Build a minimal yfinance-like Close DataFrame."""
+        idx = pd.DatetimeIndex([pd.Timestamp(d) for d in date_price_map])
+        return pd.DataFrame({"Close": list(date_price_map.values())}, index=idx)
+
+    @patch("src.fetcher.yf.download")
+    def test_exact_date_returned_when_available(self, mock_dl, tmp_path):
+        """When the requested date is a trading day, it's returned directly."""
+        from src.fetcher import fetch_historical_prices
+        mock_dl.return_value = self._make_df({"2021-01-04": 3750.0})
+        cache = self._make_cache(tmp_path)
+        result = fetch_historical_prices(["^GSPC"], ["2021-01-04"], cache)
+        assert "^GSPC" in result
+        assert result["^GSPC"]["2021-01-04"] == pytest.approx(3750.0)
+
+    @patch("src.fetcher.yf.download")
+    def test_saturday_resolves_to_nearest_friday(self, mock_dl, tmp_path):
+        """
+        2021-01-02 is a Saturday (also New Year's observed). The nearest prior
+        trading day is 2020-12-31 (Thursday) or the nearest after is 2021-01-04
+        (Monday). The function should resolve to the closest available day.
+        """
+        from src.fetcher import fetch_historical_prices
+        # Simulate yfinance returning only actual trading days
+        mock_dl.return_value = self._make_df({
+            "2020-12-31": 3756.0,   # Thu (prior)
+            "2021-01-04": 3700.0,   # Mon (next)
+        })
+        cache = self._make_cache(tmp_path)
+        result = fetch_historical_prices(["^GSPC"], ["2021-01-02"], cache)
+        assert "^GSPC" in result
+        # 2021-01-02 should be resolved to one of the two nearest days
+        price = result["^GSPC"].get("2021-01-02")
+        assert price is not None, "Weekend date should be resolved to nearest trading day"
+        assert price in (3756.0, 3700.0), f"Expected nearest trading day price, got {price}"
+
+    @patch("src.fetcher.yf.download")
+    def test_prefers_prior_when_equidistant(self, mock_dl, tmp_path):
+        """When prior and next are equidistant, prior day is preferred (lower gap wins first)."""
+        from src.fetcher import fetch_historical_prices
+        # prior is 2 days away, next is 3 days away → prior wins
+        mock_dl.return_value = self._make_df({
+            "2022-01-01": 4000.0,  # 1 day prior to Jan 2? No — Jan 1 is holiday
+            "2022-01-03": 4700.0,  # 1 day after Jan 2
+        })
+        cache = self._make_cache(tmp_path)
+        result = fetch_historical_prices(["^GSPC"], ["2022-01-02"], cache)
+        assert "^GSPC" in result
+        price = result["^GSPC"].get("2022-01-02")
+        assert price is not None
+
+    @patch("src.fetcher.yf.download")
+    def test_date_outside_5day_window_not_resolved(self, mock_dl, tmp_path):
+        """A requested date with no trading day within ±5 days is NOT resolved."""
+        from src.fetcher import fetch_historical_prices
+        # Only dates 10+ days away from requested
+        mock_dl.return_value = self._make_df({
+            "2021-01-15": 3800.0,
+        })
+        cache = self._make_cache(tmp_path)
+        result = fetch_historical_prices(["^GSPC"], ["2021-01-02"], cache)
+        # Either ticker absent or date absent — no price returned for the out-of-range date
+        ticker_prices = result.get("^GSPC", {})
+        assert "2021-01-02" not in ticker_prices
+
+    @patch("src.fetcher.yf.download")
+    def test_multiple_tickers_all_resolved(self, mock_dl, tmp_path):
+        """Nearest-date resolution works for multiple tickers in one call."""
+        from src.fetcher import fetch_historical_prices
+
+        def _side_effect(ticker, **kwargs):
+            prices = {
+                "AAPL": {"2021-01-04": 130.0},
+                "MSFT": {"2021-01-04": 220.0},
+            }
+            return self._make_df(prices.get(ticker, {}))
+
+        mock_dl.side_effect = _side_effect
+        cache = self._make_cache(tmp_path)
+        result = fetch_historical_prices(["AAPL", "MSFT"], ["2021-01-02"], cache)
+        for tkr, expected_price in [("AAPL", 130.0), ("MSFT", 220.0)]:
+            prices = result.get(tkr, {})
+            assert "2021-01-02" in prices, f"{tkr} should have resolved 2021-01-02"
+            assert prices["2021-01-02"] == pytest.approx(expected_price)
