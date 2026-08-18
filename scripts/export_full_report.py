@@ -671,12 +671,184 @@ def _build_backtest_section(rows: list[dict], run_ts: str) -> str:
     </div>"""
 
 
+# ── Top Convictions section ───────────────────────────────────────────────────
+
+_PROFILE_LABEL_SHORT = {
+    "deep_value":      ("DV",  "#3b82d4", "Deep Value"),
+    "buffett_quality": ("BQ",  "#7c3aed", "Buffett Quality"),
+    "high_fcf_yield":  ("FCF", "#059669", "High FCF Yield"),
+    "quality_value":   ("QV",  "#d97706", "Quality Value"),
+}
+
+def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
+    """
+    Build a 'Top Convictions' section: companies appearing in 2+ profiles,
+    ranked by number of profile overlaps then by best MoS%.
+    """
+    # Collect all unique tickers and which profiles they appear in
+    ticker_profiles: dict[str, list[str]] = {}
+    ticker_data: dict[str, dict] = {}   # best data row per ticker (highest MoS)
+
+    for key, rows in all_profile_rows.items():
+        for row in rows:
+            tkr = row.get("Ticker", "").strip()
+            if not tkr:
+                continue
+            if tkr not in ticker_profiles:
+                ticker_profiles[tkr] = []
+                ticker_data[tkr] = row
+            if key not in ticker_profiles[tkr]:
+                ticker_profiles[tkr].append(key)
+            # Keep the row with the highest MoS as representative data
+            existing_mos = _fv(ticker_data[tkr].get("MoS%", "")) or 0.0
+            new_mos      = _fv(row.get("MoS%", "")) or 0.0
+            if new_mos > existing_mos:
+                ticker_data[tkr] = row
+
+    # Filter to tickers in 2+ profiles and sort: overlap count desc, MoS desc
+    multi = {t: ps for t, ps in ticker_profiles.items() if len(ps) >= 2}
+    if not multi:
+        return ""   # no overlaps — skip section entirely
+
+    ranked = sorted(
+        multi.items(),
+        key=lambda x: (len(x[1]), _fv(ticker_data[x[0]].get("MoS%","")) or 0),
+        reverse=True,
+    )
+
+    rows_html = ""
+    for tkr, profiles in ranked:
+        row     = ticker_data[tkr]
+        n_prof  = len(profiles)
+        mos_v   = _fv(row.get("MoS%","")) or 0.0
+        mc      = _mos_colour(mos_v)
+        grade, glabel = _mos_grade(mos_v)
+        pos_v   = _fv(row.get("52w Position%",""))
+        pc      = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
+
+        # conviction level: 4 profiles = gold, 3 = strong, 2 = moderate
+        if n_prof == 4:
+            conv_colour, conv_label = "#d97706", "GOLD — 4/4 profiles"
+        elif n_prof == 3:
+            conv_colour, conv_label = "#16a34a", "HIGH — 3/4 profiles"
+        else:
+            conv_colour, conv_label = "#3b82d4", "MODERATE — 2/4 profiles"
+
+        # Profile badges
+        badge_html = " ".join(
+            f'<span style="display:inline-block;padding:2px 7px;border-radius:4px;'
+            f'font-size:11px;font-weight:700;background:{_PROFILE_LABEL_SHORT[p][1]}18;'
+            f'color:{_PROFILE_LABEL_SHORT[p][1]};border:1px solid {_PROFILE_LABEL_SHORT[p][1]}44">'
+            f'{_PROFILE_LABEL_SHORT[p][0]}</span>'
+            for p in profiles
+        )
+
+        pos_bar = (
+            f'<div class="gauge-wrap"><div class="gauge-track">'
+            f'<div class="gauge-fill" style="width:{min(pos_v,100):.1f}%;background:{pc}"></div>'
+            f'</div><div class="gauge-pct" style="color:{pc}">{pos_v:.0f}%</div></div>'
+            if pos_v is not None else "—"
+        )
+        mos_bar = (
+            f'<div class="gauge-wrap"><div class="gauge-track">'
+            f'<div class="gauge-fill" style="width:{min(mos_v,100):.1f}%;background:{mc}"></div>'
+            f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
+        )
+
+        rows_html += f"""<tr>
+          <td>
+            <div style="font-weight:700;font-size:11px;color:{conv_colour};
+                        background:{conv_colour}12;border:1px solid {conv_colour}33;
+                        border-radius:4px;padding:2px 8px;display:inline-block;
+                        white-space:nowrap">{conv_label}</div>
+          </td>
+          <td>
+            <div style="font-weight:800;font-size:15px">{tkr}</div>
+            <div style="font-size:12px;color:#57606a">{row.get('Company','')}</div>
+          </td>
+          <td style="font-size:12px;color:#57606a">{row.get('Sector','') or '—'}</td>
+          <td class="r" style="font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+          <td class="r" style="font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+          <td style="min-width:120px">{mos_bar}</td>
+          <td style="min-width:110px">{pos_bar}</td>
+          <td class="r">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+          <td class="r">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+          <td style="text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+          <td class="r">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
+          <td>{badge_html}</td>
+        </tr>"""
+
+    n_conv = len(ranked)
+    top_ticker = ranked[0][0] if ranked else "—"
+    top_n      = len(ranked[0][1]) if ranked else 0
+
+    return f"""
+    <span class="section-anchor" id="convictions"></span>
+    <div class="section" style="border-left:4px solid #d97706">
+      <div class="profile-badge" style="background:#d9770611;border-color:#d9770644;color:#d97706">
+        &#9733; &nbsp; Top Convictions
+      </div>
+      <div class="section-title">Top Convictions — Multi-Profile Overlap</div>
+      <div class="section-sub">
+        Companies that passed <strong>2 or more screener profiles simultaneously</strong>.
+        The more profiles a company passes, the stronger the quantitative signal —
+        each profile uses a different set of thresholds and a different investment philosophy,
+        so overlap is a robust, multi-dimensional buy signal.
+      </div>
+
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
+                  padding:14px 18px;margin-bottom:18px;font-size:13px;color:#92400e">
+        <strong>How to read this table:</strong>
+        <strong style="color:#d97706">GOLD (4/4)</strong> = strongest possible signal — passes every single screen.
+        <strong style="color:#16a34a">HIGH (3/4)</strong> = passes 3 different philosophical filters.
+        <strong style="color:#3b82d4">MODERATE (2/4)</strong> = confirmed by 2 independent approaches.
+        Sorted by conviction level, then by Margin of Safety.
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#d97706">{n_conv}</div>
+          <div class="sp-label">Multi-Profile Companies</div>
+        </div>
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#d97706">{len([t for t,ps in ranked if len(ps)==3])}</div>
+          <div class="sp-label">High Conviction (3+)</div>
+        </div>
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#d97706">{top_ticker}</div>
+          <div class="sp-label">Strongest Signal ({top_n} profiles)</div>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="stbl">
+          <thead><tr>
+            <th>Conviction</th>
+            <th>Ticker / Company</th>
+            <th>Sector</th>
+            <th class="r">Price</th>
+            <th class="r">Intrinsic Value</th>
+            <th>Margin of Safety</th>
+            <th>52w Position</th>
+            <th class="r">P/E</th>
+            <th class="r">P/FCF</th>
+            <th style="text-align:center">Piotroski</th>
+            <th class="r">ROIC</th>
+            <th>Profiles</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </div>"""
+
+
 # ── Full report builder ───────────────────────────────────────────────────────
 
 def build_full_report(out_path: Path) -> None:
     now = datetime.now().strftime("%d %B %Y, %H:%M")
 
     # Load most recent CSV for each profile
+    all_profile_rows: dict[str, list[dict]] = {}
     profile_sections = []
     total_passed = 0
     for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
@@ -688,6 +860,7 @@ def build_full_report(out_path: Path) -> None:
             ts   = p.stem[:15]
             try: ts = datetime.strptime(ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
             except Exception: pass
+        all_profile_rows[key] = rows
         total_passed += len(rows)
         profile_sections.append(_build_screener_section(key, rows, ts))
 
@@ -764,8 +937,12 @@ def build_full_report(out_path: Path) -> None:
 
     bt_section = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
 
+    # ── Top Convictions ───────────────────────────────────────────────────────
+    convictions_section = _build_convictions_section(all_profile_rows)
+
     # ── TOC ───────────────────────────────────────────────────────────────────
-    toc_links = "".join(
+    toc_links = '<a href="#convictions">&#9733; Top Convictions</a>'
+    toc_links += "".join(
         f'<a href="#{k}">{_PROFILE_META[k]["label"]}</a>'
         for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value")
     )
@@ -858,6 +1035,7 @@ def build_full_report(out_path: Path) -> None:
     {toc_links}
   </div>
 
+  {convictions_section}
   {''.join(profile_sections)}
   {dow_section}
   {bt_section}
