@@ -98,6 +98,244 @@ def _altman_colour(v: float) -> str:
     return "#e11d48"
 
 
+# ── Why Buy reasoning generator ──────────────────────────────────────────────
+
+# Sector-specific plain-English descriptions used in the reasoning text
+_SECTOR_CONTEXT = {
+    "Technology":              "technology",
+    "Communication Services":  "media and communications",
+    "Healthcare":              "healthcare",
+    "Financials":              "financial services",
+    "Financial Services":      "financial services",
+    "Consumer Defensive":      "consumer staples",
+    "Consumer Cyclical":       "consumer discretionary",
+    "Energy":                  "energy",
+    "Industrials":             "industrials",
+    "Basic Materials":         "basic materials",
+    "Real Estate":             "real estate",
+    "Utilities":               "utilities",
+}
+
+# What each profile means in plain English
+_PROFILE_PLAIN = {
+    "deep_value":      "all six Deep Value quality filters simultaneously (the tightest possible screen)",
+    "buffett_quality": "the Buffett Quality screen — combining strong returns on capital with a reasonable price",
+    "high_fcf_yield":  "the High Free Cash Flow Yield screen — exceptional real cash generation per dollar invested",
+    "quality_value":   "the Quality Value screen — financially healthy balance sheet with a clear discount to intrinsic value",
+}
+
+
+def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | None = None) -> str:
+    """
+    Generate a plain-English 'Why buy X?' paragraph with real numbers injected.
+    Works for both single-profile rows and multi-profile conviction rows.
+    """
+    ticker  = row.get("Ticker", "").strip()
+    company = row.get("Company", "").strip() or ticker
+    sector  = row.get("Sector", "").strip()
+    sector_plain = _SECTOR_CONTEXT.get(sector, sector.lower() if sector else "its sector")
+
+    mos_v   = _fv(row.get("MoS%", ""))
+    price_v = _fv(row.get("Price", ""))
+    dcf_v   = _fv(row.get("DCF Avg", ""))
+    pe_v    = _fv(row.get("P/E", ""))
+    pb_v    = _fv(row.get("P/B", ""))
+    pfcf_v  = _fv(row.get("P/FCF", ""))
+    ev_v    = _fv(row.get("EV/EBITDA", ""))
+    nd_v    = _fv(row.get("NetDebt/EBITDA", ""))
+    pio_v   = _fv(row.get("Piotroski", ""))
+    roic_v  = _fv(row.get("ROIC%", ""))
+    pos_v   = _fv(row.get("52w Position%", ""))
+    low_v   = _fv(row.get("52w Low", ""))
+    high_v  = _fv(row.get("52w High", ""))
+
+    sentences: list[str] = []
+
+    # ── Sentence 1: Core MoS + intrinsic value ───────────────────────────────
+    if mos_v is not None and mos_v > 0:
+        iv_part = ""
+        if dcf_v is not None:
+            iv_part = f" of <strong>${dcf_v:,.2f} per share</strong>"
+        sentences.append(
+            f"Our quantitative model estimates that <strong>{company} ({ticker})</strong> "
+            f"is currently trading at a <strong>{mos_v:.0f}% discount</strong> to its "
+            f"calculated intrinsic value{iv_part}. "
+            f"In plain terms: for every $1 of estimated value, the market is charging "
+            f"only <strong>${1 - mos_v/100:.2f}</strong> — a rare margin of safety."
+        )
+
+    # ── Sentence 2: P/E context ───────────────────────────────────────────────
+    if pe_v is not None and pe_v > 0:
+        if pe_v < 10:
+            pe_comment = (
+                f"At a P/E of <strong>{pe_v:.1f}×</strong> — versus the S&amp;P 500 average of ~22× — "
+                f"the market is pricing {ticker} as if earnings will decline sharply. "
+                f"Our cash-flow analysis does not support that pessimism."
+            )
+        elif pe_v < 15:
+            pe_comment = (
+                f"A P/E of <strong>{pe_v:.1f}×</strong> is well below the S&amp;P 500 average of ~22×, "
+                f"meaning the market is demanding very little premium for {ticker}'s earnings power."
+            )
+        else:
+            pe_comment = (
+                f"The P/E ratio of <strong>{pe_v:.1f}×</strong> is moderate; "
+                f"the investment case here rests primarily on free cash flow and asset value rather than earnings cheapness alone."
+            )
+        sentences.append(pe_comment)
+
+    # ── Sentence 3: P/B context ───────────────────────────────────────────────
+    if pb_v is not None and 0 < pb_v < 1.5:
+        sentences.append(
+            f"A Price-to-Book of <strong>{pb_v:.2f}×</strong> means you are acquiring "
+            f"{ticker}'s net assets — factories, intellectual property, cash — "
+            f"for <strong>less than their stated accounting value</strong>. "
+            f"This is unusual for an S&amp;P 500 company and historically associated with above-average future returns."
+        )
+    elif pb_v is not None and pb_v >= 1.5:
+        sentences.append(
+            f"The P/B of <strong>{pb_v:.2f}×</strong> reflects the market's recognition of "
+            f"{ticker}'s business quality; the valuation opportunity here comes from "
+            f"free cash flow generation rather than asset cheapness."
+        )
+
+    # ── Sentence 4: P/FCF — the most important metric ────────────────────────
+    if pfcf_v is not None and pfcf_v > 0:
+        if pfcf_v < 10:
+            fcf_comment = (
+                f"Most importantly, the P/FCF ratio of <strong>{pfcf_v:.1f}×</strong> is exceptionally low: "
+                f"the business is generating so much real cash — money that actually hits the bank account, "
+                f"not just accounting profits — that at the current price you are paying only "
+                f"<strong>{pfcf_v:.1f} years of free cash flow</strong> for the entire company."
+            )
+        elif pfcf_v < 15:
+            fcf_comment = (
+                f"The P/FCF of <strong>{pfcf_v:.1f}×</strong> confirms that {ticker} converts revenue "
+                f"into real cash at a healthy rate — free cash flow is the most reliable indicator of "
+                f"a company's true earning power because it is far harder to manipulate than net income."
+            )
+        else:
+            fcf_comment = (
+                f"The P/FCF ratio of <strong>{pfcf_v:.1f}×</strong> is within a reasonable range; "
+                f"the valuation discount here is driven primarily by the DCF model rather than current-year cash yield."
+            )
+        sentences.append(fcf_comment)
+
+    # ── Sentence 5: EV/EBITDA ────────────────────────────────────────────────
+    if ev_v is not None and ev_v > 0 and ev_v < 8:
+        sentences.append(
+            f"An EV/EBITDA of <strong>{ev_v:.1f}×</strong> means a hypothetical acquirer "
+            f"would pay back the full purchase price from operating profit alone in under 8 years — "
+            f"a threshold historically associated with cheap acquisition targets."
+        )
+
+    # ── Sentence 6: Debt safety ───────────────────────────────────────────────
+    if nd_v is not None:
+        if nd_v < 0:
+            sentences.append(
+                f"{ticker} is in a <strong>net cash position</strong> — it holds more cash than debt, "
+                f"which provides a substantial financial cushion and eliminates near-term refinancing risk."
+            )
+        elif nd_v < 1.5:
+            sentences.append(
+                f"With Net Debt/EBITDA of <strong>{nd_v:.2f}×</strong>, {ticker} carries a conservative "
+                f"debt load — it could theoretically pay off all net debt in under 2 years from operating profit alone."
+            )
+        elif nd_v > 3.0:
+            sentences.append(
+                f"Note: the leverage ratio of <strong>{nd_v:.2f}×</strong> is elevated; "
+                f"while still within our filter threshold, monitor this metric in a rising interest-rate environment."
+            )
+
+    # ── Sentence 7: Piotroski quality signal ─────────────────────────────────
+    if pio_v is not None:
+        if pio_v >= 7:
+            sentences.append(
+                f"The <strong>Piotroski F-Score of {pio_v:.0f}/9</strong> is in the strong zone: "
+                f"this 9-point accounting quality checklist covers profitability trends, balance sheet "
+                f"improvement and operating efficiency. A score of {pio_v:.0f} means the fundamentals "
+                f"are improving across almost every dimension simultaneously — exactly what you want to see "
+                f"in a value stock before it re-rates."
+            )
+        elif pio_v >= 4:
+            sentences.append(
+                f"The Piotroski F-Score of <strong>{pio_v:.0f}/9</strong> indicates a fundamentally "
+                f"stable business — not deteriorating — which reduces the risk that this discount "
+                f"is a 'value trap' masking real fundamental problems."
+            )
+
+    # ── Sentence 8: ROIC moat signal ─────────────────────────────────────────
+    if roic_v is not None and roic_v > 0:
+        if roic_v >= 15:
+            sentences.append(
+                f"A <strong>ROIC of {roic_v:.1f}%</strong> — well above the typical 10% cost of capital — "
+                f"signals a genuine competitive advantage: this company earns significantly more on each dollar "
+                f"invested back into the business than most of its S&amp;P 500 peers."
+            )
+        elif roic_v >= 10:
+            sentences.append(
+                f"With a ROIC of <strong>{roic_v:.1f}%</strong>, {ticker} clears the 10% cost-of-capital "
+                f"hurdle — meaning every dollar reinvested creates shareholder value rather than destroying it."
+            )
+        elif roic_v >= 5:
+            sentences.append(
+                f"ROIC of <strong>{roic_v:.1f}%</strong> is modest; the investment case rests on the "
+                f"price discount rather than capital efficiency."
+            )
+
+    # ── Sentence 9: 52w position ─────────────────────────────────────────────
+    if pos_v is not None and low_v is not None and high_v is not None:
+        if pos_v < 20:
+            sentences.append(
+                f"Technically, the stock is at <strong>{pos_v:.0f}% of its 52-week range</strong> "
+                f"(annual low ${low_v:,.2f} / high ${high_v:,.2f}) — essentially at its annual floor. "
+                f"This provides an additional layer of near-term downside protection independent of the DCF model."
+            )
+        elif pos_v < 40:
+            sentences.append(
+                f"At <strong>{pos_v:.0f}% of its 52-week range</strong> "
+                f"(low ${low_v:,.2f} / high ${high_v:,.2f}), the stock is trading in the lower portion "
+                f"of its annual band, offering a favourable technical entry point alongside the valuation discount."
+            )
+        elif pos_v > 75:
+            sentences.append(
+                f"Note: at <strong>{pos_v:.0f}% of its 52-week range</strong>, the stock is trading "
+                f"closer to its annual high (${high_v:,.2f}). "
+                f"The DCF discount is real, but consider a staged entry or waiting for a pullback."
+            )
+
+    # ── Sentence 10: Profile context ─────────────────────────────────────────
+    if profiles and len(profiles) > 1:
+        profile_names = " and ".join(
+            f"<strong>{_PROFILE_META.get(p, {}).get('label', p)}</strong>"
+            for p in profiles
+        )
+        sentences.append(
+            f"{ticker} operates in the <strong>{sector_plain}</strong> sector and is one of only a handful of "
+            f"S&amp;P 500 companies to simultaneously pass {profile_names} — "
+            f"{len(profiles)} independent investment philosophies reaching the same conclusion."
+        )
+    elif profile_key:
+        profile_plain = _PROFILE_PLAIN.get(profile_key, "the selected screen")
+        sentences.append(
+            f"The company operates in the <strong>{sector_plain}</strong> sector "
+            f"and passed {profile_plain}."
+        )
+
+    if not sentences:
+        return ""
+
+    return f"""
+    <div style="margin-top:12px;background:#f7f8fa;border-left:3px solid #3b82d4;
+                border-radius:0 8px 8px 0;padding:14px 18px;">
+      <div style="font-size:11px;font-weight:700;color:#3b82d4;text-transform:uppercase;
+                  letter-spacing:.07em;margin-bottom:8px">Why buy {ticker}?</div>
+      <div style="font-size:13px;line-height:1.75;color:#374151">
+        {'  '.join(sentences)}
+      </div>
+    </div>"""
+
+
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
 _CSS = """
@@ -355,6 +593,7 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
             f'<div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
         )
         dcf_model = row.get("DCF Model","").strip() or "—"
+        why = _why_buy(row, profile_key=profile_key)
         rows_html += f"""<tr>
           <td><span style="font-weight:800;color:#3b82d4;font-size:14px">#{i+1}</span></td>
           <td>
@@ -380,7 +619,8 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
             <span style="color:{mc}">{grade}</span>
             <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
           </td>
-        </tr>"""
+        </tr>
+        <tr><td colspan="16" style="padding:0 12px 16px;border-bottom:1px solid #e5e7eb">{why}</td></tr>"""
 
     return f"""
     <span class="section-anchor" id="{profile_key}"></span>
@@ -755,6 +995,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
             f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
         )
 
+        why = _why_buy(row, profiles=profiles)
         rows_html += f"""<tr>
           <td>
             <div style="font-weight:700;font-size:11px;color:{conv_colour};
@@ -776,7 +1017,8 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
           <td style="text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
           <td class="r">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
           <td>{badge_html}</td>
-        </tr>"""
+        </tr>
+        <tr><td colspan="12" style="padding:0 12px 16px;border-bottom:1px solid #e5e7eb">{why}</td></tr>"""
 
     n_conv = len(ranked)
     top_ticker = ranked[0][0] if ranked else "—"
