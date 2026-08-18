@@ -341,8 +341,8 @@ def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | No
 _CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
-       font-size: 14px; line-height: 1.6; background: #f0f2f5; color: #1f2328; }
-.page { max-width: 1020px; margin: 0 auto; padding: 32px 20px 60px; }
+       font-size: 13px; line-height: 1.6; background: #f0f2f5; color: #1f2328; }
+.page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
 
 /* nav */
 .toc { background:#fff; border:1px solid #e5e7eb; border-radius:10px;
@@ -387,26 +387,27 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
                  padding:4px 10px; font-size:12px; font-weight:700; color:#1d4ed8;
                  margin-bottom:16px; }
 
-/* screener table */
-.stbl { width:100%; border-collapse:collapse; font-size:13px; }
-.stbl thead th { background:#1f2328; color:#fff; padding:10px 12px;
-                 font-size:11px; text-transform:uppercase; letter-spacing:.05em;
-                 text-align:left; white-space:nowrap; }
+/* screener table — full width, no scrollbar, PDF-safe */
+.stbl { width:100%; border-collapse:collapse; font-size:11.5px;
+        table-layout:fixed; }
+.stbl thead th { background:#1f2328; color:#fff; padding:8px 8px;
+                 font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+                 text-align:left; white-space:normal; overflow-wrap:break-word; }
 .stbl thead th.r { text-align:right; }
-.stbl tbody td { padding:10px 12px; border-bottom:1px solid #f0f2f5;
-                 vertical-align:middle; }
+.stbl tbody td { padding:8px 8px; border-bottom:1px solid #f0f2f5;
+                 vertical-align:middle; word-break:break-word; overflow-wrap:break-word; }
 .stbl tbody tr:last-child td { border-bottom:none; }
 .stbl tbody tr:hover td { background:#f7f8fa; }
 .stbl td.r { text-align:right; }
-.ticker-lbl { font-weight:800; font-size:14px; }
-.company-lbl { font-size:12px; color:#57606a; }
+.ticker-lbl { font-weight:800; font-size:13px; }
+.company-lbl { font-size:11px; color:#57606a; }
 
 /* gauge bar */
-.gauge-wrap { display:flex; align-items:center; gap:8px; }
-.gauge-track { flex:1; min-width:60px; height:7px; background:#e5e7eb;
+.gauge-wrap { display:flex; align-items:center; gap:4px; }
+.gauge-track { flex:1; min-width:30px; height:6px; background:#e5e7eb;
                border-radius:4px; overflow:hidden; }
 .gauge-fill  { height:100%; border-radius:4px; }
-.gauge-pct   { font-size:12px; font-weight:700; width:42px; text-align:right; flex-shrink:0; }
+.gauge-pct   { font-size:11px; font-weight:700; width:34px; text-align:right; flex-shrink:0; }
 
 /* quality badges */
 .qbadge { display:inline-block; padding:2px 7px; border-radius:4px;
@@ -476,8 +477,24 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
 
 @media(max-width:640px){
   .header-meta, .bt-header, .stats-bar { flex-direction:column; }
-  .stbl { font-size:12px; }
-  .stbl th, .stbl td { padding:7px 8px; }
+  .stbl { font-size:11px; }
+  .stbl th, .stbl td { padding:5px 5px; }
+}
+
+@media print {
+  body { background:#fff !important; font-size:11px; }
+  .page { max-width:100% !important; padding:12px 10px 30px !important; }
+  .section { border-radius:6px !important; padding:16px 18px !important;
+             page-break-inside:avoid; }
+  .toc, .section-anchor { display:none !important; }
+  .report-header { background:#1f2328 !important; -webkit-print-color-adjust:exact;
+                   print-color-adjust:exact; padding:20px 24px !important; }
+  .stbl thead th { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .bt-header, .stats-bar { gap:8px !important; }
+  .stat-pill, .bt-kpi { padding:10px 12px !important; }
+  .sp-value, .bt-kpi .kv { font-size:18px !important; }
+  .chart-wrap { page-break-inside:avoid; }
+  a { color:inherit !important; text-decoration:none !important; }
 }
 """
 
@@ -593,34 +610,32 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
             f'<div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
         )
         dcf_model = row.get("DCF Model","").strip() or "—"
-        why = _why_buy(row, profile_key=profile_key)
         rows_html += f"""<tr>
-          <td><span style="font-weight:800;color:#3b82d4;font-size:14px">#{i+1}</span></td>
-          <td>
+          <td style="width:3%"><span style="font-weight:800;color:#3b82d4;font-size:13px">#{i+1}</span></td>
+          <td style="width:13%">
             <div class="ticker-lbl">{row.get('Ticker','')}</div>
             <div class="company-lbl">{row.get('Company','')}</div>
           </td>
-          <td style="color:#57606a;font-size:12px">{row.get('Sector','') or '—'}</td>
-          <td class="r">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-          <td class="r">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-          <td style="min-width:120px">{mos_bar}</td>
-          <td style="min-width:120px">{pos_bar}</td>
-          <td class="r">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-          <td class="r">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
-          <td class="r">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
-          <td class="r">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-          <td class="r">{_fmt(row.get('NetDebt/EBITDA',''),2,suffix='x')}</td>
-          <td style="text-align:center">{_quality_badge(row.get('Piotroski',''), 'piotroski')}</td>
-          <td class="r">{_quality_badge(row.get('ROIC%',''), 'roic')}</td>
-          <td style="text-align:center">
-            <span style="font-size:11px;background:#f0f2f5;padding:2px 7px;border-radius:4px;font-weight:600">{dcf_model}</span>
+          <td style="width:10%;color:#57606a;font-size:11px">{row.get('Sector','') or '—'}</td>
+          <td class="r" style="width:6%">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+          <td class="r" style="width:7%">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+          <td style="width:9%">{mos_bar}</td>
+          <td style="width:8%">{pos_bar}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
+          <td class="r" style="width:6%">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+          <td class="r" style="width:7%">{_fmt(row.get('NetDebt/EBITDA',''),2,suffix='x')}</td>
+          <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''), 'piotroski')}</td>
+          <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''), 'roic')}</td>
+          <td style="width:7%;text-align:center">
+            <span style="font-size:10px;background:#f0f2f5;padding:2px 5px;border-radius:4px;font-weight:600">{dcf_model}</span>
           </td>
-          <td class="r" style="font-weight:800">
+          <td class="r" style="width:7%;font-weight:800">
             <span style="color:{mc}">{grade}</span>
             <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
           </td>
-        </tr>
-        <tr><td colspan="16" style="padding:0 12px 16px;border-bottom:1px solid #e5e7eb">{why}</td></tr>"""
+        </tr>"""
 
     return f"""
     <span class="section-anchor" id="{profile_key}"></span>
@@ -631,29 +646,27 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
       <div class="section-title">{meta['label']} Screen</div>
       <div class="section-sub">{meta['desc']}</div>
       {pills}
-      <div style="overflow-x:auto">
-        <table class="stbl">
-          <thead><tr>
-            <th>#</th>
-            <th>Ticker / Company</th>
-            <th>Sector</th>
-            <th class="r">Price</th>
-            <th class="r">Intrinsic Value</th>
-            <th>Margin of Safety</th>
-            <th>52w Position</th>
-            <th class="r">P/E</th>
-            <th class="r">P/B</th>
-            <th class="r">EV/EBITDA</th>
-            <th class="r">P/FCF</th>
-            <th class="r">Net Debt/EBITDA</th>
-            <th style="text-align:center">Piotroski</th>
-            <th class="r">ROIC</th>
-            <th style="text-align:center">DCF Model</th>
-            <th class="r">Grade</th>
-          </tr></thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-      </div>
+      <table class="stbl">
+        <thead><tr>
+          <th style="width:3%">#</th>
+          <th style="width:13%">Ticker / Company</th>
+          <th style="width:10%">Sector</th>
+          <th class="r" style="width:6%">Price</th>
+          <th class="r" style="width:7%">Intrinsic Val.</th>
+          <th style="width:9%">Margin of Safety</th>
+          <th style="width:8%">52w Position</th>
+          <th class="r" style="width:5%">P/E</th>
+          <th class="r" style="width:5%">P/B</th>
+          <th class="r" style="width:6%">EV/EBITDA</th>
+          <th class="r" style="width:5%">P/FCF</th>
+          <th class="r" style="width:7%">Net Debt/EBITDA</th>
+          <th style="width:6%;text-align:center">Piotroski</th>
+          <th class="r" style="width:6%">ROIC</th>
+          <th style="width:7%;text-align:center">DCF Model</th>
+          <th class="r" style="width:7%">Grade</th>
+        </tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
     </div>"""
 
 
@@ -883,20 +896,18 @@ def _build_backtest_section(rows: list[dict], run_ts: str) -> str:
       <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:#1f2328">
         Detailed Year-by-Year Results
       </div>
-      <div style="overflow-x:auto">
-        <table class="bt-tbl">
-          <thead><tr>
-            <th>Year</th>
-            <th class="r">Portfolio Return</th>
-            <th class="r">S&amp;P 500 Return</th>
-            <th class="r">Excess vs SPX</th>
-            <th class="r">Wins / Picks</th>
-            <th class="r">Win Rate</th>
-            <th>Selected Tickers</th>
-          </tr></thead>
-          <tbody>{tbl_rows}</tbody>
-        </table>
-      </div>
+      <table class="bt-tbl" style="width:100%;table-layout:fixed">
+        <thead><tr>
+          <th style="width:8%">Year</th>
+          <th class="r" style="width:14%">Portfolio Return</th>
+          <th class="r" style="width:14%">S&amp;P 500 Return</th>
+          <th class="r" style="width:14%">Excess vs SPX</th>
+          <th class="r" style="width:10%">Wins / Picks</th>
+          <th class="r" style="width:10%">Win Rate</th>
+          <th style="width:30%">Selected Tickers</th>
+        </tr></thead>
+        <tbody>{tbl_rows}</tbody>
+      </table>
 
       <div class="limit-box">
         <strong>Important Limitations of this Backtest:</strong><br>
@@ -997,28 +1008,27 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
 
         why = _why_buy(row, profiles=profiles)
         rows_html += f"""<tr>
-          <td>
-            <div style="font-weight:700;font-size:11px;color:{conv_colour};
+          <td style="width:11%">
+            <div style="font-weight:700;font-size:10px;color:{conv_colour};
                         background:{conv_colour}12;border:1px solid {conv_colour}33;
-                        border-radius:4px;padding:2px 8px;display:inline-block;
-                        white-space:nowrap">{conv_label}</div>
+                        border-radius:4px;padding:2px 6px;display:inline-block">{conv_label}</div>
           </td>
-          <td>
-            <div style="font-weight:800;font-size:15px">{tkr}</div>
-            <div style="font-size:12px;color:#57606a">{row.get('Company','')}</div>
+          <td style="width:13%">
+            <div style="font-weight:800;font-size:13px">{tkr}</div>
+            <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
           </td>
-          <td style="font-size:12px;color:#57606a">{row.get('Sector','') or '—'}</td>
-          <td class="r" style="font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-          <td class="r" style="font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-          <td style="min-width:120px">{mos_bar}</td>
-          <td style="min-width:110px">{pos_bar}</td>
-          <td class="r">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-          <td class="r">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-          <td style="text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
-          <td class="r">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
-          <td>{badge_html}</td>
+          <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '—'}</td>
+          <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+          <td class="r" style="width:7%;font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+          <td style="width:9%">{mos_bar}</td>
+          <td style="width:8%">{pos_bar}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+          <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+          <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
+          <td style="width:15%">{badge_html}</td>
         </tr>
-        <tr><td colspan="12" style="padding:0 12px 16px;border-bottom:1px solid #e5e7eb">{why}</td></tr>"""
+        <tr style="background:#fffdf7"><td colspan="12" style="padding:4px 10px 14px;border-bottom:2px solid #fde68a">{why}</td></tr>"""
 
     n_conv = len(ranked)
     top_ticker = ranked[0][0] if ranked else "—"
@@ -1062,25 +1072,23 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         </div>
       </div>
 
-      <div style="overflow-x:auto">
-        <table class="stbl">
-          <thead><tr>
-            <th>Conviction</th>
-            <th>Ticker / Company</th>
-            <th>Sector</th>
-            <th class="r">Price</th>
-            <th class="r">Intrinsic Value</th>
-            <th>Margin of Safety</th>
-            <th>52w Position</th>
-            <th class="r">P/E</th>
-            <th class="r">P/FCF</th>
-            <th style="text-align:center">Piotroski</th>
-            <th class="r">ROIC</th>
-            <th>Profiles</th>
-          </tr></thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-      </div>
+      <table class="stbl">
+        <thead><tr>
+          <th style="width:11%">Conviction</th>
+          <th style="width:13%">Ticker / Company</th>
+          <th style="width:9%">Sector</th>
+          <th class="r" style="width:6%">Price</th>
+          <th class="r" style="width:7%">Intrinsic Val.</th>
+          <th style="width:9%">Margin of Safety</th>
+          <th style="width:8%">52w Position</th>
+          <th class="r" style="width:5%">P/E</th>
+          <th class="r" style="width:5%">P/FCF</th>
+          <th style="width:6%;text-align:center">Piotroski</th>
+          <th class="r" style="width:6%">ROIC</th>
+          <th style="width:15%">Profiles</th>
+        </tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
     </div>"""
 
 
@@ -1165,16 +1173,20 @@ def build_full_report(out_path: Path) -> None:
           <div class="section-title">Dow Jones 30 — 52-Week Ranking</div>
           <div class="section-sub">All 30 blue-chip companies ranked by proximity to 52-week low.
             Green = near annual low (best opportunity). Red = near annual high. Data run: {dow_ts}.</div>
-          <div style="overflow-x:auto">
-            <table class="stbl">
-              <thead><tr>
-                <th>#</th><th>Ticker</th><th>Company</th><th>Sector</th>
-                <th class="r">Price</th><th>52w Position (lower = better)</th>
-                <th class="r">P/E</th><th class="r">P/B</th><th class="r">MoS%</th>
-              </tr></thead>
-              <tbody>{trows}</tbody>
-            </table>
-          </div>
+          <table class="stbl" style="table-layout:fixed">
+            <thead><tr>
+              <th style="width:5%">#</th>
+              <th style="width:8%">Ticker</th>
+              <th style="width:22%">Company</th>
+              <th style="width:16%">Sector</th>
+              <th class="r" style="width:8%">Price</th>
+              <th style="width:16%">52w Position</th>
+              <th class="r" style="width:7%">P/E</th>
+              <th class="r" style="width:7%">P/B</th>
+              <th class="r" style="width:11%">MoS%</th>
+            </tr></thead>
+            <tbody>{trows}</tbody>
+          </table>
         </div>"""
 
     bt_section = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
