@@ -53,8 +53,10 @@ def _load_csv(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
-def _most_recent(pattern: str) -> Path | None:
+def _most_recent(pattern: str, exclude_backtest: bool = False) -> Path | None:
     files = sorted(REPORTS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if exclude_backtest:
+        files = [f for f in files if "backtest" not in f.stem]
     return files[0] if files else None
 
 
@@ -678,7 +680,7 @@ def build_full_report(out_path: Path) -> None:
     profile_sections = []
     total_passed = 0
     for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
-        p = _most_recent(f"*_{key}.csv")
+        p = _most_recent(f"*_{key}.csv", exclude_backtest=True)
         if p is None:
             rows, ts = [], "—"
         else:
