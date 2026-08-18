@@ -1,0 +1,11 @@
+# Optional user overrides for screener profiles.
+# Only the fields you specify here will override the built-in defaults.
+# Profile names: deep_value | buffett_quality | high_fcf_yield
+#
+# Example — relax the P/E cap for deep_value:
+# deep_value:
+#   max_pe: 18
+#
+# Example — tighten MoS requirement for buffett_quality:
+# buffett_quality:
+#   min_margin_of_safety_pct: 20
