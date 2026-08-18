@@ -30,3 +30,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local credentials
+.github_credentials
