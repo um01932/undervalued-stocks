@@ -16,10 +16,105 @@ import argparse
 import csv
 import math
 import sys
-from datetime import datetime
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 REPORTS_DIR = Path(__file__).parent.parent / "data" / "reports"
+DB_PATH     = Path(__file__).parent.parent / "data" / "cache.duckdb"
+
+# ── Price history cache (OHLCV for Why-Buy charts) ────────────────────────────
+
+def _ensure_ohlcv_table() -> None:
+    """Create ohlcv_cache table if it doesn't exist."""
+    import duckdb
+    con = duckdb.connect(str(DB_PATH))
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS ohlcv_cache (
+            ticker      VARCHAR NOT NULL,
+            date        VARCHAR NOT NULL,
+            open        DOUBLE,
+            high        DOUBLE,
+            low         DOUBLE,
+            close       DOUBLE,
+            volume      BIGINT,
+            fetched_at  TIMESTAMP NOT NULL,
+            PRIMARY KEY (ticker, date)
+        )
+    """)
+    con.close()
+
+
+def _fetch_price_history(tickers: list[str]) -> dict[str, list[dict]]:
+    """
+    Fetch 1-year daily OHLCV for each ticker.
+    Uses ohlcv_cache in DuckDB (TTL = 1 day).
+    Returns {ticker: [{date, open, high, low, close, volume}, ...]} sorted asc.
+    """
+    try:
+        import duckdb
+        import yfinance as yf
+    except ImportError:
+        return {}
+
+    _ensure_ohlcv_table()
+    con    = duckdb.connect(str(DB_PATH))
+    result = {}
+    cutoff = (datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+    for tkr in tickers:
+        # Check cache first
+        cached = con.execute("""
+            SELECT date, open, high, low, close, volume
+            FROM ohlcv_cache
+            WHERE ticker = ? AND fetched_at >= ?
+            ORDER BY date ASC
+        """, [tkr, cutoff]).fetchall()
+
+        if len(cached) >= 200:          # enough data in cache
+            result[tkr] = [
+                {"date": r[0], "open": r[1], "high": r[2],
+                 "low": r[3], "close": r[4], "volume": r[5]}
+                for r in cached
+            ]
+            continue
+
+        # Fetch from yfinance
+        try:
+            time.sleep(0.3)             # gentle rate limit
+            hist = yf.Ticker(tkr).history(period="1y", interval="1d", auto_adjust=True)
+            if hist.empty:
+                continue
+            rows = []
+            now_ts = datetime.now(UTC).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+            for dt, row in hist.iterrows():
+                date_str = str(dt)[:10]
+                rows.append({
+                    "date":   date_str,
+                    "open":   float(row["Open"])   if row["Open"]   == row["Open"] else None,
+                    "high":   float(row["High"])   if row["High"]   == row["High"] else None,
+                    "low":    float(row["Low"])    if row["Low"]    == row["Low"]  else None,
+                    "close":  float(row["Close"])  if row["Close"]  == row["Close"]else None,
+                    "volume": int(row["Volume"])   if row["Volume"] == row["Volume"] else None,
+                })
+            # Upsert into cache
+            con.execute("DELETE FROM ohlcv_cache WHERE ticker = ?", [tkr])
+            for r in rows:
+                con.execute("""
+                    INSERT INTO ohlcv_cache
+                        (ticker, date, open, high, low, close, volume, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, [tkr, r["date"], r["open"], r["high"], r["low"],
+                      r["close"], r["volume"], now_ts])
+            result[tkr] = rows
+        except Exception as exc:
+            print(f"  [chart] {tkr}: {exc}")
+
+    con.close()
+    return result
+
+# ── Module-level price data (populated at build time) ─────────────────────────
+_PRICE_DATA: dict[str, list[dict]] = {}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -172,6 +267,157 @@ def _52w_bar(price_v: float | None, low_v: float | None, high_v: float | None) -
 </div>"""
 
 
+def _price_chart_svg(ohlc: list[dict], ticker: str = "") -> str:
+    """
+    Inline SVG candlestick chart for 52-week daily OHLC data.
+    Width: 100% of container. Height: 130px chart + 18px date labels.
+    Green candle = close >= open. Red candle = close < open.
+    Wick = high/low thin line. Volume bars rendered at the bottom (20px).
+    """
+    if not ohlc:
+        return ""
+
+    # ── Filter valid rows ─────────────────────────────────────────────────────
+    rows = [r for r in ohlc
+            if r.get("open") and r.get("high") and r.get("low") and r.get("close")]
+    if len(rows) < 10:
+        return ""
+
+    # ── Geometry ──────────────────────────────────────────────────────────────
+    W       = 700   # SVG coordinate width (viewBox)
+    H_CHART = 110   # candle area height
+    H_VOL   = 22    # volume bar area height
+    H_LABEL = 14    # date label area height
+    H_TOTAL = H_CHART + H_VOL + H_LABEL + 6
+    PAD_L   = 6
+    PAD_R   = 6
+    chart_w = W - PAD_L - PAD_R
+
+    n       = len(rows)
+    col_w   = chart_w / n                # width per candle column
+    body_w  = max(col_w * 0.6, 1.5)     # candle body width
+
+    # ── Price scale ───────────────────────────────────────────────────────────
+    all_highs = [r["high"] for r in rows]
+    all_lows  = [r["low"]  for r in rows]
+    p_max = max(all_highs) * 1.01
+    p_min = min(all_lows)  * 0.99
+    p_span = p_max - p_min or 1.0
+
+    def py(price: float) -> float:
+        """Map price to SVG Y coordinate (top=0 = highest price)."""
+        return round(H_CHART * (1.0 - (price - p_min) / p_span), 2)
+
+    # ── Volume scale ─────────────────────────────────────────────────────────
+    vols     = [r.get("volume") or 0 for r in rows]
+    v_max    = max(vols) or 1
+    vol_y0   = H_CHART + 4   # top of volume area
+
+    def vy(vol: int) -> float:
+        return round(H_VOL * (vol / v_max), 2)
+
+    # ── Build SVG elements ────────────────────────────────────────────────────
+    candles   = []
+    vol_bars  = []
+    date_lbls = []
+
+    # Decide which dates to label (every ~8 weeks ≈ 40 candles)
+    label_step = max(1, n // 8)
+
+    for i, r in enumerate(rows):
+        cx   = PAD_L + (i + 0.5) * col_w   # center x of candle
+        o, h, l, c = r["open"], r["high"], r["low"], r["close"]
+        green   = c >= o
+        colour  = "#22c55e" if green else "#ef4444"
+        body_t  = py(max(o, c))
+        body_b  = py(min(o, c))
+        body_h  = max(body_b - body_t, 1.0)
+
+        # Wick (high–low)
+        candles.append(
+            f'<line x1="{cx:.1f}" y1="{py(h):.1f}" x2="{cx:.1f}" y2="{py(l):.1f}"'
+            f' stroke="{colour}" stroke-width="0.8" stroke-opacity="0.8"/>'
+        )
+        # Body
+        x_left = cx - body_w / 2
+        candles.append(
+            f'<rect x="{x_left:.1f}" y="{body_t:.1f}"'
+            f' width="{body_w:.1f}" height="{body_h:.1f}"'
+            f' fill="{colour}" fill-opacity="0.9"/>'
+        )
+
+        # Volume bar
+        vol    = r.get("volume") or 0
+        vbar_h = vy(vol)
+        vbar_y = vol_y0 + H_VOL - vbar_h
+        vol_bars.append(
+            f'<rect x="{x_left:.1f}" y="{vbar_y:.1f}"'
+            f' width="{body_w:.1f}" height="{vbar_h:.1f}"'
+            f' fill="{colour}" fill-opacity="0.4"/>'
+        )
+
+        # Date label every N steps
+        if i % label_step == 0 or i == n - 1:
+            dstr = r["date"][5:]    # MM-DD
+            date_lbls.append(
+                f'<text x="{cx:.1f}" y="{H_CHART + H_VOL + H_LABEL + 2}"'
+                f' font-size="8" fill="#9ca3af" text-anchor="middle"'
+                f' font-family="monospace">{dstr}</text>'
+            )
+
+    # ── Price axis labels (3 levels) ─────────────────────────────────────────
+    price_lbls = []
+    for frac in (0.0, 0.5, 1.0):
+        p = p_min + frac * p_span
+        y = py(p)
+        price_lbls.append(
+            f'<text x="{W - PAD_R}" y="{y + 3:.1f}" font-size="8" fill="#9ca3af"'
+            f' text-anchor="end" font-family="monospace">${p:,.0f}</text>'
+        )
+        # horizontal guide line
+        price_lbls.append(
+            f'<line x1="{PAD_L}" y1="{y:.1f}" x2="{W - PAD_R}" y2="{y:.1f}"'
+            f' stroke="#e5e7eb" stroke-width="0.5" stroke-dasharray="3,3"/>'
+        )
+
+    # ── Current price marker ─────────────────────────────────────────────────
+    last_close  = rows[-1]["close"]
+    lc_y        = py(last_close)
+    lc_colour   = "#22c55e" if rows[-1]["close"] >= rows[-1]["open"] else "#ef4444"
+    last_marker = (
+        f'<line x1="{PAD_L}" y1="{lc_y:.1f}" x2="{W - 50}" y2="{lc_y:.1f}"'
+        f' stroke="{lc_colour}" stroke-width="0.8" stroke-dasharray="4,2" stroke-opacity="0.7"/>'
+        f'<rect x="{W-48}" y="{lc_y - 7:.1f}" width="42" height="13" rx="3"'
+        f' fill="{lc_colour}" fill-opacity="0.15" stroke="{lc_colour}" stroke-width="0.5"/>'
+        f'<text x="{W - 27}" y="{lc_y + 4:.1f}" font-size="8.5" fill="{lc_colour}"'
+        f' font-weight="bold" text-anchor="middle" font-family="monospace">'
+        f'${last_close:,.2f}</text>'
+    )
+
+    all_elems = (
+        "".join(price_lbls) +
+        "".join(vol_bars) +
+        "".join(candles) +
+        last_marker +
+        "".join(date_lbls)
+    )
+
+    # Ticker label top-left
+    tkr_lbl = (
+        f'<text x="{PAD_L + 2}" y="12" font-size="10" fill="#374151"'
+        f' font-weight="bold" font-family="monospace">{ticker} — 52w Daily</text>'
+    ) if ticker else ""
+
+    return (
+        f'<div style="margin:10px 0 4px;background:#fafafa;border:1px solid #e5e7eb;'
+        f'border-radius:8px;padding:8px 6px 4px;overflow:hidden">'
+        f'<svg viewBox="0 0 {W} {H_TOTAL}" preserveAspectRatio="xMidYMid meet"'
+        f' style="display:block;width:100%;height:auto">'
+        f'{tkr_lbl}{all_elems}'
+        f'</svg></div>'
+    )
+
+
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
     """3 metric cards: MoS, Piotroski, ROIC + composite/overall score badges."""
     def _norm(v, lo, hi):
@@ -252,7 +498,8 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
 
 def _why_buy(row: dict, profile_key: str | None = None,
              profiles: list[str] | None = None,
-             overall_score: float | None = None) -> str:
+             overall_score: float | None = None,
+             ohlc: list[dict] | None = None) -> str:
     """
     Generate a 'Why buy X?' expandable panel.
     Layout (top to bottom, no scroll):
@@ -457,23 +704,30 @@ def _why_buy(row: dict, profile_key: str | None = None,
     body       = '  '.join(sentences)
     cards_html = _score_cards(row, overall_score)
     bar_html   = _52w_bar(price_v, low_v, high_v)
+    chart_html = _price_chart_svg(ohlc or [], ticker) if ohlc else ""
 
     fit_v = _fv(row.get("ProfileFit", ""))
     sc_v  = overall_score if overall_score is not None else fit_v
     sc_c  = ("#16a34a" if (sc_v or 0) >= 75 else ("#eab308" if (sc_v or 0) >= 55 else "#9ca3af")) if sc_v else "#9ca3af"
 
     bar_section = f"""
-        <div style="margin-bottom:14px">
+        <div style="margin-bottom:10px">
           <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
-                      letter-spacing:.06em;margin-bottom:6px">52-Week Range</div>
+                      letter-spacing:.06em;margin-bottom:4px">52-Week Range</div>
           {bar_html}
-        </div>
-        <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">""" if bar_html else ""
+        </div>""" if bar_html else ""
+
+    chart_section = f"""
+        <div style="margin-bottom:14px">
+          {chart_html}
+        </div>""" if chart_html else ""
 
     panel_html = f"""
         <!-- Score cards -->
         <div style="margin-bottom:14px">{cards_html}</div>
         {bar_section}
+        {chart_section}
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
         <!-- Plain-English analysis -->
         <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>"""
 
@@ -824,7 +1078,8 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
                  'padding:1px 5px;font-weight:700">TRAP</span>')
 
     # Why Buy — generate panel + button
-    ticker, panel_html, sc_v, sc_c = _why_buy(row, profile_key=None)
+    ticker, panel_html, sc_v, sc_c = _why_buy(row, profile_key=None,
+                                               ohlc=_PRICE_DATA.get(ticker) if _PRICE_DATA else None)
     sc_c = sc_c or "#9ca3af"
     why_btn_html = _why_btn(ticker, sc_v, sc_c) if panel_html else ""
     why_exp_row  = _why_tr(panel_html, col_count, ticker) if panel_html else ""
@@ -1385,7 +1640,8 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
             f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
         )
 
-        _, panel_html, sc_v, sc_c = _why_buy(row, profiles=profiles)
+        _, panel_html, sc_v, sc_c = _why_buy(row, profiles=profiles,
+                                              ohlc=_PRICE_DATA.get(tkr) if _PRICE_DATA else None)
         sc_c = sc_c or "#9ca3af"
         why_btn_html = _why_btn(tkr, sc_v, sc_c) if panel_html else ""
         why_exp_row  = _why_tr(panel_html, 12, tkr) if panel_html else ""
@@ -1590,7 +1846,8 @@ def _build_overall_top(
                 )
 
         _, panel_html, _sc_v, _sc_c = _why_buy(row, profiles=passes_in if passes_in else None,
-                                                overall_score=score)
+                                                overall_score=score,
+                                                ohlc=_PRICE_DATA.get(tkr) if _PRICE_DATA else None)
         _sc_c = _sc_c or "#9ca3af"
         why_btn_html = _why_btn(tkr, _sc_v if _sc_v is not None else score, _sc_c) if panel_html else ""
         why_exp_row  = _why_tr(panel_html, 14, tkr) if panel_html else ""
@@ -1688,6 +1945,7 @@ def _build_overall_top(
 # ── Full report builder ───────────────────────────────────────────────────────
 
 def build_full_report(out_path: Path) -> None:
+    global _PRICE_DATA
     now = datetime.now().strftime("%d %B %Y, %H:%M")
 
     # Load most recent CSV for each profile
@@ -1715,6 +1973,25 @@ def build_full_report(out_path: Path) -> None:
 
     total_passed = sum(n_pass_per_profile.values())
     total_ranked = sum(len(rows) for rows in all_profile_rows.values())
+
+    # ── Fetch 1-year OHLCV for Why-Buy charts ─────────────────────────────────
+    # Collect unique tickers that will appear in Why-Buy panels (top-N per profile
+    # + top overall). Limit to top 15 per profile sorted by ProfileFit to keep
+    # build time reasonable (~0.3s × 40 tickers ≈ 12s extra).
+    chart_tickers: set[str] = set()
+    for rows in all_profile_rows.values():
+        sorted_rows = sorted(rows, key=lambda r: _fv(r.get("ProfileFit","")) or 0, reverse=True)
+        for r in sorted_rows[:15]:
+            tkr = r.get("Ticker","").strip()
+            if tkr:
+                chart_tickers.add(tkr)
+
+    if chart_tickers:
+        print(f"  Fetching 1y OHLCV for {len(chart_tickers)} tickers (Why-Buy charts)…")
+        _PRICE_DATA = _fetch_price_history(sorted(chart_tickers))
+        print(f"  Fetched price history for {len(_PRICE_DATA)} tickers.")
+    else:
+        _PRICE_DATA = {}
 
     # Dow 30
     dow_path = _most_recent("*_dow30_ranking.csv")
