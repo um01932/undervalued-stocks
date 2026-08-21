@@ -546,7 +546,145 @@ def _quality_badge(val: str, kind: str) -> str:
     return f'<span class="qbadge" style="background:#f0f2f5;color:#8d96a0">{val}</span>'
 
 
-def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> str:
+def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
+                     passes: bool | None = None) -> str:
+    """Render a single company row for any screener table."""
+    mos_v = _fv(row.get("MoS%", "")) or 0.0
+    mc    = _mos_colour(mos_v)
+    grade, glabel = _mos_grade(mos_v)
+    pos_v = _fv(row.get("52w Position%", ""))
+    pc    = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
+    pos_bar = (
+        f'<div class="gauge-wrap"><div class="gauge-track">'
+        f'<div class="gauge-fill" style="width:{min(pos_v,100):.1f}%;background:{pc}"></div>'
+        f'</div><div class="gauge-pct" style="color:{pc}">{pos_v:.0f}%</div></div>'
+        if pos_v is not None else "—"
+    )
+    mos_bar = (
+        f'<div class="gauge-wrap"><div class="gauge-track">'
+        f'<div class="gauge-fill" style="width:{min(mos_v,100):.1f}%;background:{mc}"></div>'
+        f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
+    )
+    dcf_model = row.get("DCF Model", "").strip() or "—"
+    fit_v = _fv(row.get("ProfileFit", ""))
+    fit_cell = ""
+    if show_fit and fit_v is not None:
+        fc = "#16a34a" if fit_v >= 70 else ("#eab308" if fit_v >= 40 else "#e11d48")
+        fit_cell = f'<td class="r" style="width:6%"><span style="font-weight:800;color:{fc}">{fit_v:.0f}</span></td>'
+
+    # Pass/fail badge
+    if passes is None:
+        passes_str = row.get("Passes", "")
+        passes = str(passes_str).strip().lower() in ("true", "1", "yes")
+    badge = (
+        '<span style="font-size:9px;background:#dcfce7;color:#15803d;border-radius:3px;'
+        'padding:1px 5px;font-weight:700">PASS</span>'
+        if passes else
+        '<span style="font-size:9px;background:#f1f5f9;color:#94a3b8;border-radius:3px;'
+        'padding:1px 5px;font-weight:600">NEAR</span>'
+    )
+    status = row.get("Status", "")
+    if status == "VALUE_TRAP":
+        badge = ('<span style="font-size:9px;background:#fef2f2;color:#dc2626;border-radius:3px;'
+                 'padding:1px 5px;font-weight:700">TRAP</span>')
+
+    rank_html = f'<span style="font-weight:800;color:{colour};font-size:13px">#{rank}</span>'
+
+    return f"""<tr>
+      <td style="width:3%">{rank_html}</td>
+      <td style="width:12%">
+        <div class="ticker-lbl">{row.get('Ticker','')}</div>
+        <div class="company-lbl">{row.get('Company','')}</div>
+        <div style="margin-top:2px">{badge}</div>
+      </td>
+      <td style="width:9%;color:#57606a;font-size:11px">{row.get('Sector','') or '—'}</td>
+      <td class="r" style="width:6%">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+      <td class="r" style="width:7%">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+      <td style="width:9%">{mos_bar}</td>
+      <td style="width:8%">{pos_bar}</td>
+      <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+      <td class="r" style="width:5%">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
+      <td class="r" style="width:6%">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
+      <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+      <td class="r" style="width:6%">{_fmt(row.get('NetDebt/EBITDA',''),2,suffix='x')}</td>
+      <td style="width:5%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+      <td class="r" style="width:5%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
+      <td style="width:6%;text-align:center">
+        <span style="font-size:10px;background:#f0f2f5;padding:2px 4px;border-radius:4px;font-weight:600">{dcf_model}</span>
+      </td>
+      <td class="r" style="width:5%;font-weight:800">
+        <span style="color:{mc}">{grade}</span>
+        <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
+      </td>
+      {fit_cell}
+    </tr>"""
+
+
+def _table_header(show_fit: bool = False) -> str:
+    fit_th = '<th class="r" style="width:6%">Fit Score</th>' if show_fit else ""
+    return f"""<thead><tr>
+      <th style="width:3%">#</th>
+      <th style="width:12%">Ticker / Company</th>
+      <th style="width:9%">Sector</th>
+      <th class="r" style="width:6%">Price</th>
+      <th class="r" style="width:7%">Intrinsic Val.</th>
+      <th style="width:9%">Margin of Safety</th>
+      <th style="width:8%">52w Position</th>
+      <th class="r" style="width:5%">P/E</th>
+      <th class="r" style="width:5%">P/B</th>
+      <th class="r" style="width:6%">EV/EBITDA</th>
+      <th class="r" style="width:5%">P/FCF</th>
+      <th class="r" style="width:6%">Net Debt/EBITDA</th>
+      <th style="width:5%;text-align:center">Piotroski</th>
+      <th class="r" style="width:5%">ROIC</th>
+      <th style="width:6%;text-align:center">DCF Model</th>
+      <th class="r" style="width:5%">Grade</th>
+      {fit_th}
+    </tr></thead>"""
+
+
+def _compact_row(row: dict, rank: int) -> str:
+    """Minimal one-line row for the 'rest of companies' compact table."""
+    mos_v = _fv(row.get("MoS%", ""))
+    mc    = _mos_colour(mos_v) if mos_v is not None else "#8d96a0"
+    pos_v = _fv(row.get("52w Position%", ""))
+    pc    = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
+    fit_v = _fv(row.get("ProfileFit", ""))
+    fit_str = f"{fit_v:.0f}" if fit_v is not None else "—"
+    fit_c = "#16a34a" if (fit_v or 0) >= 70 else ("#eab308" if (fit_v or 0) >= 40 else "#6b7280")
+
+    passes_str = row.get("Passes", "")
+    passes = str(passes_str).strip().lower() in ("true", "1", "yes")
+    status = row.get("Status", "")
+
+    if status == "VALUE_TRAP":
+        status_badge = '<span style="font-size:9px;color:#dc2626;font-weight:700">TRAP</span>'
+    elif passes:
+        status_badge = '<span style="font-size:9px;color:#16a34a;font-weight:700">PASS</span>'
+    else:
+        status_badge = '<span style="font-size:9px;color:#9ca3af">—</span>'
+
+    return f"""<tr>
+      <td style="color:#6b7280;font-size:12px">{rank}</td>
+      <td>
+        <span style="font-weight:700;font-size:12px">{row.get('Ticker','')}</span>
+        <span style="color:#9ca3af;font-size:11px;margin-left:4px">{row.get('Company','')[:28]}</span>
+        {status_badge}
+      </td>
+      <td style="font-size:11px;color:#9ca3af">{row.get('Sector','')[:18] or '—'}</td>
+      <td class="r" style="font-size:12px">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+      <td class="r" style="font-size:12px;color:{mc};font-weight:700">{_fmt(row.get('MoS%',''),1,suffix='%') if mos_v is not None else '—'}</td>
+      <td class="r" style="font-size:12px;color:{pc}">{_fmt(row.get('52w Position%',''),0,suffix='%') if pos_v is not None else '—'}</td>
+      <td class="r" style="font-size:12px">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+      <td class="r" style="font-size:12px">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+      <td style="text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+      <td class="r" style="font-weight:800;color:{fit_c}">{fit_str}</td>
+    </tr>"""
+
+
+def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
+                             top_n: int = 5) -> str:
+    """Build a profile section: KPI pills + top-N detailed + rest compact."""
     meta = _PROFILE_META.get(profile_key, {
         "label": profile_key.replace("_", " ").title(),
         "icon": profile_key[:2].upper(),
@@ -555,34 +693,31 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
     })
     colour = meta["colour"]
     n = len(rows)
-    if n == 0:
-        return f"""
-        <span class="section-anchor" id="{profile_key}"></span>
-        <div class="section">
-          <div class="profile-badge" style="background:{colour}11;border-color:{colour}44;color:{colour}">
-            {meta['icon']} &nbsp; {meta['label']}
-          </div>
-          <div class="section-title">{meta['label']} Screen</div>
-          <div class="section-sub">No companies passed this profile in the most recent run.</div>
-        </div>"""
 
-    best_mos = _fv(rows[0].get("MoS%", "")) or 0.0
-    avg_mos  = sum((_fv(r.get("MoS%","")) or 0) for r in rows) / n
+    # sort by ProfileFit desc (already sorted from CSV, but ensure it)
+    rows_sorted = sorted(rows, key=lambda r: _fv(r.get("ProfileFit","")) or 0, reverse=True)
 
-    # ── KPI pills ─────────────────────────────────────────────────────────────
+    passing   = [r for r in rows_sorted if str(r.get("Passes","")).strip().lower() in ("true","1","yes")]
+    not_trap  = [r for r in rows_sorted if r.get("Status","") != "INSUFFICIENT_DATA"]
+    top_rows  = rows_sorted[:top_n]
+    rest_rows = rows_sorted[top_n:]
+
+    n_pass = len(passing)
+    best_fit = _fv(rows_sorted[0].get("ProfileFit","")) if rows_sorted else 0.0
+
     pills = f"""
     <div class="stats-bar">
       <div class="stat-pill">
-        <div class="sp-value" style="color:{colour}">{n}</div>
-        <div class="sp-label">Passed</div>
+        <div class="sp-value" style="color:{colour}">{n_pass}</div>
+        <div class="sp-label">Strict Pass</div>
       </div>
       <div class="stat-pill">
-        <div class="sp-value" style="color:{colour}">{best_mos:.0f}%</div>
-        <div class="sp-label">Best MoS</div>
+        <div class="sp-value" style="color:{colour}">{len(not_trap)}</div>
+        <div class="sp-label">Ranked Total</div>
       </div>
       <div class="stat-pill">
-        <div class="sp-value" style="color:{colour}">{avg_mos:.0f}%</div>
-        <div class="sp-label">Avg MoS</div>
+        <div class="sp-value" style="color:{colour}">{best_fit:.0f}/100</div>
+        <div class="sp-label">Best Fit Score</div>
       </div>
       <div class="stat-pill">
         <div class="sp-value" style="color:{colour}">{run_ts}</div>
@@ -590,52 +725,44 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
       </div>
     </div>"""
 
-    # ── Table ─────────────────────────────────────────────────────────────────
-    rows_html = ""
-    for i, row in enumerate(rows):
-        mos_v  = _fv(row.get("MoS%","")) or 0.0
-        mc     = _mos_colour(mos_v)
-        grade, glabel = _mos_grade(mos_v)
-        pos_v  = _fv(row.get("52w Position%",""))
-        pc     = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
-        pos_bar = (
-            f'<div class="gauge-wrap">'
-            f'<div class="gauge-track"><div class="gauge-fill" style="width:{min(pos_v,100):.1f}%;background:{pc}"></div></div>'
-            f'<div class="gauge-pct" style="color:{pc}">{pos_v:.0f}%</div></div>'
-            if pos_v is not None else "—"
-        )
-        mos_bar = (
-            f'<div class="gauge-wrap">'
-            f'<div class="gauge-track"><div class="gauge-fill" style="width:{min(mos_v,100):.1f}%;background:{mc}"></div></div>'
-            f'<div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
-        )
-        dcf_model = row.get("DCF Model","").strip() or "—"
-        rows_html += f"""<tr>
-          <td style="width:3%"><span style="font-weight:800;color:#3b82d4;font-size:13px">#{i+1}</span></td>
-          <td style="width:13%">
-            <div class="ticker-lbl">{row.get('Ticker','')}</div>
-            <div class="company-lbl">{row.get('Company','')}</div>
-          </td>
-          <td style="width:10%;color:#57606a;font-size:11px">{row.get('Sector','') or '—'}</td>
-          <td class="r" style="width:6%">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-          <td class="r" style="width:7%">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-          <td style="width:9%">{mos_bar}</td>
-          <td style="width:8%">{pos_bar}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
-          <td class="r" style="width:6%">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-          <td class="r" style="width:7%">{_fmt(row.get('NetDebt/EBITDA',''),2,suffix='x')}</td>
-          <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''), 'piotroski')}</td>
-          <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''), 'roic')}</td>
-          <td style="width:7%;text-align:center">
-            <span style="font-size:10px;background:#f0f2f5;padding:2px 5px;border-radius:4px;font-weight:600">{dcf_model}</span>
-          </td>
-          <td class="r" style="width:7%;font-weight:800">
-            <span style="color:{mc}">{grade}</span>
-            <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
-          </td>
-        </tr>"""
+    # ── Top N detailed rows ────────────────────────────────────────────────────
+    top_html = "".join(
+        _row_to_table_tr(r, i+1, colour, show_fit=True) for i, r in enumerate(top_rows)
+    )
+
+    # ── Rest: compact rows ─────────────────────────────────────────────────────
+    rest_html = ""
+    if rest_rows:
+        compact_rows = "".join(_compact_row(r, i+top_n+1) for i, r in enumerate(rest_rows))
+        rest_html = f"""
+        <details style="margin-top:16px">
+          <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#374151;
+                          padding:10px 14px;background:#f7f8fa;border-radius:8px;
+                          border:1px solid #e5e7eb;list-style:none;user-select:none">
+            &#9660; Show all {len(rest_rows)} remaining companies (ranked #{top_n+1} – #{n})
+            &nbsp;<span style="font-weight:400;color:#9ca3af;font-size:12px">
+              — sorted by Fit Score descending, PASS/NEAR/TRAP status shown</span>
+          </summary>
+          <div style="margin-top:8px;overflow-x:hidden">
+            <table class="stbl" style="font-size:11.5px">
+              <thead style="background:#1f2328">
+                <tr>
+                  <th style="width:4%;color:#fff">#</th>
+                  <th style="width:25%;color:#fff">Ticker / Company</th>
+                  <th style="width:12%;color:#fff">Sector</th>
+                  <th class="r" style="width:8%;color:#fff">Price</th>
+                  <th class="r" style="width:8%;color:#fff">MoS%</th>
+                  <th class="r" style="width:8%;color:#fff">52w Pos</th>
+                  <th class="r" style="width:8%;color:#fff">P/E</th>
+                  <th class="r" style="width:8%;color:#fff">P/FCF</th>
+                  <th style="width:8%;text-align:center;color:#fff">Piotroski</th>
+                  <th class="r" style="width:11%;color:#fff">Fit Score</th>
+                </tr>
+              </thead>
+              <tbody>{compact_rows}</tbody>
+            </table>
+          </div>
+        </details>"""
 
     return f"""
     <span class="section-anchor" id="{profile_key}"></span>
@@ -645,28 +772,23 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str) -> 
       </div>
       <div class="section-title">{meta['label']} Screen</div>
       <div class="section-sub">{meta['desc']}</div>
+      <div class="ib blue" style="margin-bottom:16px">
+        <strong>Fit Score explained:</strong> 0–100, calculated as
+        70% proximity to all profile thresholds + 30% composite quality score.
+        <strong style="color:#16a34a">PASS</strong> = meets ALL strict criteria.
+        <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but still ranked.
+        <strong style="color:#dc2626">TRAP</strong> = value trap flag (high debt / negative FCF).
+        No company is hidden — all {n} ranked companies visible below.
+      </div>
       {pills}
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1f2328">
+        Top {min(top_n, n)} — Detailed View
+      </div>
       <table class="stbl">
-        <thead><tr>
-          <th style="width:3%">#</th>
-          <th style="width:13%">Ticker / Company</th>
-          <th style="width:10%">Sector</th>
-          <th class="r" style="width:6%">Price</th>
-          <th class="r" style="width:7%">Intrinsic Val.</th>
-          <th style="width:9%">Margin of Safety</th>
-          <th style="width:8%">52w Position</th>
-          <th class="r" style="width:5%">P/E</th>
-          <th class="r" style="width:5%">P/B</th>
-          <th class="r" style="width:6%">EV/EBITDA</th>
-          <th class="r" style="width:5%">P/FCF</th>
-          <th class="r" style="width:7%">Net Debt/EBITDA</th>
-          <th style="width:6%;text-align:center">Piotroski</th>
-          <th class="r" style="width:6%">ROIC</th>
-          <th style="width:7%;text-align:center">DCF Model</th>
-          <th class="r" style="width:7%">Grade</th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
+        {_table_header(show_fit=True)}
+        <tbody>{top_html}</tbody>
       </table>
+      {rest_html}
     </div>"""
 
 
@@ -933,10 +1055,14 @@ _PROFILE_LABEL_SHORT = {
 
 def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
     """
-    Build a 'Top Convictions' section: companies appearing in 2+ profiles,
+    Build a 'Top Convictions' section: companies that STRICTLY PASS 2+ profiles,
     ranked by number of profile overlaps then by best MoS%.
+
+    NOTE: all_profile_rows now contains ALL companies (new CSV format with
+    ProfileFit/Passes/Status columns), so we must filter to Passes=True rows
+    before determining conviction overlaps.
     """
-    # Collect all unique tickers and which profiles they appear in
+    # Collect only strictly-passing tickers and which profiles they pass
     ticker_profiles: dict[str, list[str]] = {}
     ticker_data: dict[str, dict] = {}   # best data row per ticker (highest MoS)
 
@@ -944,6 +1070,10 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         for row in rows:
             tkr = row.get("Ticker", "").strip()
             if not tkr:
+                continue
+            # Only consider rows where the company strictly passes all criteria
+            is_pass = str(row.get("Passes", "")).strip().lower() in ("true", "1", "yes")
+            if not is_pass:
                 continue
             if tkr not in ticker_profiles:
                 ticker_profiles[tkr] = []
@@ -1092,6 +1222,215 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
     </div>"""
 
 
+# ── Overall Top section (cross-profile ranking) ───────────────────────────────
+
+def _build_overall_top(
+    all_profile_rows: dict[str, list[dict]],
+    top_n: int = 10,
+) -> str:
+    """
+    Cross-profile 'Top Overall' section.
+
+    For every company in the universe, collects its ProfileFit score from each
+    profile CSV it appears in, then computes a weighted-average Overall Score.
+    Deep Value carries weight 1.3 (strictest), down to FCF Yield at 1.0.
+
+    Shows top-N with Why-Buy reasoning for each.
+    """
+    # Profile weights — stricter profiles carry more signal
+    weights = {
+        "deep_value":      1.30,
+        "buffett_quality": 1.20,
+        "quality_value":   1.10,
+        "high_fcf_yield":  1.00,
+    }
+
+    ticker_raw_fits: dict[str, dict[str, float]] = {}   # tkr -> {profile: raw fit}
+    ticker_data:     dict[str, dict]              = {}   # best representative row
+    ticker_passes:   dict[str, list[str]]         = {}   # profiles strictly passed
+
+    for key, rows in all_profile_rows.items():
+        w = weights.get(key, 1.0)
+        for row in rows:
+            tkr = row.get("Ticker", "").strip()
+            if not tkr:
+                continue
+            fit_v = _fv(row.get("ProfileFit", ""))
+            if fit_v is None:
+                continue
+
+            if tkr not in ticker_raw_fits:
+                ticker_raw_fits[tkr] = {}
+                ticker_data[tkr]     = row
+                ticker_passes[tkr]   = []
+
+            ticker_raw_fits[tkr][key] = fit_v   # store raw fit (multiply at calc time)
+
+            is_pass = str(row.get("Passes", "")).strip().lower() in ("true", "1", "yes")
+            if is_pass and key not in ticker_passes[tkr]:
+                ticker_passes[tkr].append(key)
+
+            existing_mos = _fv(ticker_data[tkr].get("MoS%", "")) or 0.0
+            new_mos      = _fv(row.get("MoS%", "")) or 0.0
+            if new_mos > existing_mos:
+                ticker_data[tkr] = row
+
+    if not ticker_raw_fits:
+        return ""
+
+    def _overall(tkr: str) -> float:
+        fits  = ticker_raw_fits[tkr]
+        w_sum = sum(weights.get(k, 1.0) for k in fits)
+        w_fit = sum(fits[k] * weights.get(k, 1.0) for k in fits)
+        return round(w_fit / w_sum, 1) if w_sum > 0 else 0.0
+
+    ranked_all = sorted(ticker_raw_fits.keys(), key=_overall, reverse=True)
+    top        = ranked_all[:top_n]
+    if not top:
+        return ""
+
+    best_score = _overall(top[0])
+    n_universe = len(ticker_raw_fits)
+    n_strict   = sum(1 for t in ticker_raw_fits if ticker_passes.get(t))
+
+    rows_html = ""
+    for i, tkr in enumerate(top):
+        row       = ticker_data[tkr]
+        score     = _overall(tkr)
+        passes_in = ticker_passes.get(tkr, [])
+
+        sc = "#16a34a" if score >= 75 else ("#eab308" if score >= 55 else "#e11d48")
+        mos_v = _fv(row.get("MoS%", "")) or 0.0
+        mc    = _mos_colour(mos_v)
+        grade, glabel = _mos_grade(mos_v)
+        pos_v = _fv(row.get("52w Position%", ""))
+        pc    = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
+
+        mos_bar = (
+            f'<div class="gauge-wrap"><div class="gauge-track">'
+            f'<div class="gauge-fill" style="width:{min(mos_v,100):.1f}%;background:{mc}"></div>'
+            f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
+        )
+        pos_bar = (
+            f'<div class="gauge-wrap"><div class="gauge-track">'
+            f'<div class="gauge-fill" style="width:{min(pos_v,100):.1f}%;background:{pc}"></div>'
+            f'</div><div class="gauge-pct" style="color:{pc}">{pos_v:.0f}%</div></div>'
+            if pos_v is not None else "—"
+        )
+
+        badge_html = ""
+        for pk in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
+            if pk in ticker_raw_fits.get(tkr, {}):
+                info = _PROFILE_LABEL_SHORT[pk]
+                is_p = pk in passes_in
+                bg   = info[1] if is_p else "#94a3b8"
+                badge_html += (
+                    f'<span style="display:inline-block;padding:2px 6px;border-radius:4px;'
+                    f'font-size:10px;font-weight:700;background:{bg}18;color:{bg};'
+                    f'border:1px solid {bg}44;margin:1px">{info[0]}</span>'
+                )
+
+        why = _why_buy(row, profiles=passes_in if passes_in else None)
+        rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
+
+        rows_html += f"""<tr>
+          <td style="width:4%;text-align:center">
+            <span style="font-weight:800;color:{rank_colour};font-size:15px">#{i+1}</span>
+          </td>
+          <td style="width:13%">
+            <div style="font-weight:800;font-size:14px">{tkr}</div>
+            <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
+          </td>
+          <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '&mdash;'}</td>
+          <td class="r" style="width:7%">
+            <span style="font-size:22px;font-weight:900;color:{sc}">{score:.0f}</span>
+            <div style="font-size:10px;color:#9ca3af">/ 100</div>
+          </td>
+          <td style="width:10%">{badge_html}</td>
+          <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
+          <td class="r" style="width:7%;font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+          <td style="width:9%">{mos_bar}</td>
+          <td style="width:8%">{pos_bar}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+          <td style="width:5%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+          <td class="r" style="width:5%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
+          <td class="r" style="width:5%;font-weight:800;color:{mc}">
+            {grade}
+            <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
+          </td>
+        </tr>
+        <tr style="background:#f7fbff">
+          <td colspan="14" style="padding:4px 10px 14px;border-bottom:2px solid #bfdbfe">
+            {why}
+          </td>
+        </tr>"""
+
+    return f"""
+    <span class="section-anchor" id="overall_top"></span>
+    <div class="section" style="border-left:4px solid #3b82d4">
+      <div class="profile-badge" style="background:#3b82d411;border-color:#3b82d444;color:#3b82d4">
+        &#9650;&nbsp; Top Overall
+      </div>
+      <div class="section-title">Top Overall &mdash; Cross-Profile Ranking</div>
+      <div class="section-sub">
+        Weighted average of ProfileFit scores across all 4 screener profiles.
+        Deep Value carries the highest weight (1.3&times;) as the strictest screen.
+        Every company in the S&amp;P 500 universe is scored and ranked regardless
+        of whether it strictly passes any single profile.
+      </div>
+
+      <div class="ib blue" style="margin-bottom:18px">
+        <strong>Overall Score (0&ndash;100)</strong> =
+        weighted average of
+        (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0)
+        normalised by the profiles the company appears in.
+        &nbsp;Profile badges:
+        <strong>filled colour</strong> = strict PASS &nbsp;|&nbsp;
+        <strong style="color:#94a3b8">grey</strong> = ranked but did not strictly pass.
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#3b82d4">{n_universe}</div>
+          <div class="sp-label">Companies Ranked</div>
+        </div>
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#16a34a">{n_strict}</div>
+          <div class="sp-label">Any Strict Pass</div>
+        </div>
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#3b82d4">{best_score:.0f}/100</div>
+          <div class="sp-label">Best Overall Score</div>
+        </div>
+        <div class="stat-pill">
+          <div class="sp-value" style="color:#3b82d4">Top {top_n}</div>
+          <div class="sp-label">Shown Here</div>
+        </div>
+      </div>
+
+      <table class="stbl">
+        <thead><tr>
+          <th style="width:4%;text-align:center">#</th>
+          <th style="width:13%">Ticker / Company</th>
+          <th style="width:9%">Sector</th>
+          <th class="r" style="width:7%">Overall Score</th>
+          <th style="width:10%">Profiles</th>
+          <th class="r" style="width:6%">Price</th>
+          <th class="r" style="width:7%">Intrinsic Val.</th>
+          <th style="width:9%">Margin of Safety</th>
+          <th style="width:8%">52w Position</th>
+          <th class="r" style="width:5%">P/E</th>
+          <th class="r" style="width:5%">P/FCF</th>
+          <th style="width:5%;text-align:center">Piotroski</th>
+          <th class="r" style="width:5%">ROIC</th>
+          <th class="r" style="width:5%">Grade</th>
+        </tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>"""
+
+
 # ── Full report builder ───────────────────────────────────────────────────────
 
 def build_full_report(out_path: Path) -> None:
@@ -1099,8 +1438,9 @@ def build_full_report(out_path: Path) -> None:
 
     # Load most recent CSV for each profile
     all_profile_rows: dict[str, list[dict]] = {}
-    profile_sections = []
-    total_passed = 0
+    profile_sections: list[str] = []
+    n_pass_per_profile: dict[str, int] = {}
+
     for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
         p = _most_recent(f"*_{key}.csv", exclude_backtest=True)
         if p is None:
@@ -1111,8 +1451,16 @@ def build_full_report(out_path: Path) -> None:
             try: ts = datetime.strptime(ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
             except Exception: pass
         all_profile_rows[key] = rows
-        total_passed += len(rows)
+        # Count only strict-pass companies (new CSV format: Passes column)
+        n_pass = sum(
+            1 for r in rows
+            if str(r.get("Passes", "")).strip().lower() in ("true", "1", "yes")
+        )
+        n_pass_per_profile[key] = n_pass
         profile_sections.append(_build_screener_section(key, rows, ts))
+
+    total_passed = sum(n_pass_per_profile.values())
+    total_ranked = sum(len(rows) for rows in all_profile_rows.values())
 
     # Dow 30
     dow_path = _most_recent("*_dow30_ranking.csv")
@@ -1191,11 +1539,15 @@ def build_full_report(out_path: Path) -> None:
 
     bt_section = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
 
+    # ── Overall Top (cross-profile) ───────────────────────────────────────────
+    overall_top_section = _build_overall_top(all_profile_rows, top_n=10)
+
     # ── Top Convictions ───────────────────────────────────────────────────────
     convictions_section = _build_convictions_section(all_profile_rows)
 
     # ── TOC ───────────────────────────────────────────────────────────────────
-    toc_links = '<a href="#convictions">&#9733; Top Convictions</a>'
+    toc_links  = '<a href="#overall_top">&#9650; Top Overall</a>'
+    toc_links += '<a href="#convictions">&#9733; Top Convictions</a>'
     toc_links += "".join(
         f'<a href="#{k}">{_PROFILE_META[k]["label"]}</a>'
         for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value")
@@ -1270,7 +1622,8 @@ def build_full_report(out_path: Path) -> None:
     <div class="header-meta">
       <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">{now}</div></div>
       <div class="hm-item"><div class="hm-label">Universe</div><div class="hm-value">S&amp;P 500 (503 tickers)</div></div>
-      <div class="hm-item"><div class="hm-label">Total Passed</div><div class="hm-value">{total_passed} companies</div></div>
+      <div class="hm-item"><div class="hm-label">Strict Passed</div><div class="hm-value">{total_passed} (across 4 profiles)</div></div>
+      <div class="hm-item"><div class="hm-label">Ranked Total</div><div class="hm-value">{total_ranked} rows</div></div>
       <div class="hm-item"><div class="hm-label">Benchmark</div><div class="hm-value">^GSPC (S&amp;P 500)</div></div>
       <div class="hm-item"><div class="hm-label">Data Source</div><div class="hm-value">Yahoo Finance / yfinance</div></div>
       <div class="hm-item"><div class="hm-label">Storage</div><div class="hm-value">DuckDB (local cache)</div></div>
@@ -1289,6 +1642,7 @@ def build_full_report(out_path: Path) -> None:
     {toc_links}
   </div>
 
+  {overall_top_section}
   {convictions_section}
   {''.join(profile_sections)}
   {dow_section}
@@ -1309,7 +1663,10 @@ def build_full_report(out_path: Path) -> None:
 
     out_path.write_text(html, encoding="utf-8")
     print(f"Full report saved: {out_path}")
-    print(f"  Profiles: deep_value={len([])}, etc.")
+    print(f"  Strict passes — "
+          + ", ".join(f"{k}: {n_pass_per_profile.get(k,0)}" for k in n_pass_per_profile))
+    print(f"  Total ranked rows: {total_ranked}")
+    print(f"  Report size: {out_path.stat().st_size / 1024:.0f} KB")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

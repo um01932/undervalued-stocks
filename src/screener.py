@@ -30,6 +30,7 @@ __all__ = [
     "BUILTIN_PROFILES",
     "load_profiles",
     "apply_profile",
+    "rank_all",
     "apply_dow30_ranking",
     "compute_composite_score",
     "DOW30_OUTPUT_COLUMNS",
@@ -357,6 +358,145 @@ def apply_profile(
     sort_col = profile.sort_by if profile.sort_by in df.columns else "MoS%"
     df = df.sort_values(sort_col, ascending=False, na_position="last").reset_index(drop=True)
 
+    return df
+
+
+def rank_all(
+    results: list[ValuationResult],
+    profile: ScreenerProfile,
+) -> pd.DataFrame:
+    """
+    Rank ALL companies by how well they fit a screener profile — no company excluded.
+
+    Instead of a hard pass/fail filter, each company receives a
+    **profile fit score** (0–100) measuring how close it is to satisfying
+    every criterion in the profile.  Companies that PASS all criteria score
+    their composite_score directly; companies that miss one or more criteria
+    are penalised proportionally.
+
+    Columns added beyond _OUTPUT_COLUMNS:
+      - ``Passes``     : bool — True if the company would pass apply_profile()
+      - ``ProfileFit`` : float 0–100 — proximity score for this profile
+      - ``Status``     : OK / VALUE_TRAP / INSUFFICIENT_DATA
+
+    INSUFFICIENT_DATA companies are included at the bottom (fit = 0).
+
+    Args:
+        results:  All ValuationResult objects from engine.evaluate().
+        profile:  The screener profile to score against.
+
+    Returns:
+        DataFrame sorted descending by ProfileFit, all companies present.
+    """
+    rows: list[dict] = []
+
+    for r in results:
+        passes = _passes_filter(r, profile) and r.status != "INSUFFICIENT_DATA" and (
+            r.status != "VALUE_TRAP" or profile.include_value_traps
+        )
+
+        # ── Compute a proximity score (0–100) for each criterion ─────────────
+        # Each criterion contributes equally; partial credit for being close.
+        criteria_scores: list[float] = []
+
+        def _criterion_score(
+            value: Optional[float],
+            threshold: Optional[float],
+            higher_is_better: bool = False,
+            allow_negative: bool = False,
+        ) -> float:
+            """0.0 = very far from passing, 1.0 = at or better than threshold."""
+            if threshold is None:
+                return 1.0  # no criterion → full marks
+            if value is None:
+                return 0.7  # missing data: neutral-ish (don't punish too hard)
+            if not allow_negative and value < 0:
+                return 0.0  # negative multiple = bad
+            if higher_is_better:
+                # e.g. MoS ≥ min_threshold
+                if value >= threshold:
+                    return 1.0
+                # partial credit: how far are we as % of threshold?
+                return max(0.0, min(value / threshold, 1.0))
+            else:
+                # e.g. P/E ≤ max_threshold
+                if value <= threshold:
+                    return 1.0
+                # partial credit: ratio threshold/value (closer = higher score)
+                return max(0.0, min(threshold / value, 1.0))
+
+        # Multiples criteria
+        criteria_scores.append(_criterion_score(r.pe_ratio, profile.max_pe))
+        criteria_scores.append(_criterion_score(r.pb_ratio, profile.max_pb))
+        criteria_scores.append(_criterion_score(r.ev_ebitda, profile.max_ev_ebitda))
+        criteria_scores.append(_criterion_score(r.p_fcf, profile.max_p_fcf))
+        criteria_scores.append(_criterion_score(
+            r.net_debt_ebitda, profile.max_net_debt_ebitda, allow_negative=True
+        ))
+        # MoS — higher is better
+        criteria_scores.append(_criterion_score(
+            r.margin_of_safety_pct, profile.min_margin_of_safety_pct,
+            higher_is_better=True
+        ))
+        # Piotroski — higher is better
+        if profile.min_piotroski is not None:
+            pio_val = float(r.piotroski_score) if r.piotroski_score is not None else None
+            criteria_scores.append(_criterion_score(
+                pio_val, float(profile.min_piotroski), higher_is_better=True
+            ))
+        # ROIC — higher is better (convert to %)
+        if profile.min_roic is not None:
+            roic_pct = (r.roic * 100) if r.roic is not None else None
+            criteria_scores.append(_criterion_score(
+                roic_pct, profile.min_roic, higher_is_better=True
+            ))
+        # Altman distress — penalise Z < 1.0 when flag is set
+        if profile.exclude_altman_distress and r.altman_z is not None:
+            az_score = 0.0 if r.altman_z < 1.0 else 1.0
+            criteria_scores.append(az_score)
+
+        if r.status == "INSUFFICIENT_DATA":
+            profile_fit = 0.0
+        else:
+            # Weighted: average of criteria scores × composite_score blend
+            criteria_avg = (sum(criteria_scores) / len(criteria_scores)) if criteria_scores else 0.5
+            comp = (r.composite_score or 0) / 100.0
+            # 70% criteria proximity + 30% composite quality score
+            profile_fit = round((criteria_avg * 0.70 + comp * 0.30) * 100, 1)
+
+        rows.append({
+            "Ticker":           r.ticker,
+            "Company":          r.company_name or "",
+            "Sector":           r.sector or "",
+            "Industry":         r.industry or "",
+            "Price":            r.current_price,
+            "52w Low":          r.week52_low,
+            "52w High":         r.week52_high,
+            "52w Position%":    r.price_vs_52w_low_pct,
+            "MoS%":             r.margin_of_safety_pct,
+            "P/E":              r.pe_ratio,
+            "P/B":              r.pb_ratio,
+            "EV/EBITDA":        r.ev_ebitda,
+            "P/FCF":            r.p_fcf,
+            "NetDebt/EBITDA":   r.net_debt_ebitda,
+            "DCF GGM":          r.dcf_ggm_intrinsic,
+            "DCF Exit":         r.dcf_exit_intrinsic,
+            "DCF Avg":          r.dcf_intrinsic_value,
+            "DCF Model":        r.dcf_model_used or "—",
+            "Piotroski":        r.piotroski_score,
+            "ROIC%":            (r.roic * 100) if r.roic is not None else None,
+            "Score":            r.composite_score,
+            "Passes":           passes,
+            "ProfileFit":       profile_fit,
+            "Status":           r.status,
+        })
+
+    if not rows:
+        cols = _OUTPUT_COLUMNS + ["Passes", "ProfileFit", "Status"]
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(rows)
+    df = df.sort_values("ProfileFit", ascending=False, na_position="last").reset_index(drop=True)
     return df
 
 

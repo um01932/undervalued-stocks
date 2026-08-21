@@ -32,7 +32,7 @@ from rich import box
 from src.backtester import BacktestResult, run_backtest, LIMITATIONS
 from src.engine import DCFParams, ValuationResult, evaluate
 from src.fetcher import CacheStore, TickerData, fetch_universe, fetch_risk_free_rate
-from src.screener import ScreenerProfile, apply_profile, apply_dow30_ranking, load_profiles
+from src.screener import ScreenerProfile, apply_profile, rank_all, apply_dow30_ranking, load_profiles
 from src.universe import UniverseSource, get_universe
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -564,18 +564,29 @@ def run(args: argparse.Namespace) -> None:
         profile_name = args.profile
         profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
         console.print(f"[bold]Profile:[/bold] {profile_name}\n")
-        df = apply_profile(valuation_results, profile)
+        # rank_all: returns ALL companies with ProfileFit score (no exclusions)
+        df = rank_all(valuation_results, profile)
+        # df_filtered: only companies that pass strict thresholds (for display summary)
+        df_filtered = apply_profile(valuation_results, profile)
 
     # ── 5. Display ────────────────────────────────────────────────────────────
-    render_table(df)
     if is_dow30_mode:
+        render_table(df)
         console.print(f"\n[dim]{len(df)} Dow Jones companies ranked (lowest 52w position first).[/dim]")
         console.print("[dim]Interpretation: rank #1 = trading closest to 52-week low = most upside potential.[/dim]")
     else:
-        console.print(f"\n[dim]{len(df)} companies passed the '{profile_name}' filter.[/dim]")
+        # Show top 10 in CLI (full ranked list exported to CSV)
+        render_table(df_filtered)
+        passes = df["Passes"].sum() if "Passes" in df.columns else 0
+        console.print(
+            f"\n[dim]{passes} companies pass strict '{profile_name}' filter. "
+            f"Full ranked list of {len(df)} companies exported to CSV.[/dim]"
+        )
 
     # ── 6. Export ─────────────────────────────────────────────────────────────
-    written = export_results(df, args.export, profile_name)
+    # Export the FULL ranked list (all companies) not just the filtered ones
+    export_df = df if not is_dow30_mode else df
+    written = export_results(export_df, args.export, profile_name)
     failed_path = _save_failed(failed, profile_name)
 
     for path in written:
