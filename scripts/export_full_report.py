@@ -325,15 +325,22 @@ def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | No
     if not sentences:
         return ""
 
+    body = '  '.join(sentences)
     return f"""
-    <div style="margin-top:12px;background:#f7f8fa;border-left:3px solid #3b82d4;
-                border-radius:0 8px 8px 0;padding:14px 18px;">
-      <div style="font-size:11px;font-weight:700;color:#3b82d4;text-transform:uppercase;
-                  letter-spacing:.07em;margin-bottom:8px">Why buy {ticker}?</div>
-      <div style="font-size:13px;line-height:1.75;color:#374151">
-        {'  '.join(sentences)}
+    <details class="why" style="margin-top:8px">
+      <summary style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+                      font-size:11px;font-weight:700;color:#3b82d4;text-transform:uppercase;
+                      letter-spacing:.07em;list-style:none;user-select:none;
+                      padding:4px 10px;background:#eff6ff;border:1px solid #bfdbfe;
+                      border-radius:20px;transition:background .15s">
+        <span class="why-arrow" style="font-size:13px;line-height:1">&#9654;</span>
+        Why buy {ticker}?
+      </summary>
+      <div style="margin-top:8px;background:#f7f8fa;border-left:3px solid #3b82d4;
+                  border-radius:0 8px 8px 0;padding:14px 18px;">
+        <div style="font-size:13px;line-height:1.75;color:#374151">{body}</div>
       </div>
-    </div>"""
+    </details>"""
 
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -470,6 +477,12 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
       font-size:13px; line-height:1.6; }
 .ib.blue  { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
 .ib.green { background:#f0fdf4; border:1px solid #bbf7d0; color:#14532d; }
+
+/* Why-buy collapsible */
+details.why summary::-webkit-details-marker { display:none; }
+details summary:hover { background:#dbeafe !important; }
+details[open] summary .why-arrow { transform:rotate(90deg); }
+.why-arrow { display:inline-block; transition:transform .2s ease; }
 
 /* footer */
 .footer { text-align:center; font-size:11px; color:#8d96a0;
@@ -1146,6 +1159,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
           <td style="width:13%">
             <div style="font-weight:800;font-size:13px">{tkr}</div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
+            {why}
           </td>
           <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '—'}</td>
           <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
@@ -1157,8 +1171,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
           <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
           <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
           <td style="width:15%">{badge_html}</td>
-        </tr>
-        <tr style="background:#fffdf7"><td colspan="12" style="padding:4px 10px 14px;border-bottom:2px solid #fde68a">{why}</td></tr>"""
+        </tr>"""
 
     n_conv = len(ranked)
     top_ticker = ranked[0][0] if ranked else "—"
@@ -1340,6 +1353,7 @@ def _build_overall_top(
           <td style="width:13%">
             <div style="font-weight:800;font-size:14px">{tkr}</div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
+            {why}
           </td>
           <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '&mdash;'}</td>
           <td class="r" style="width:7%">
@@ -1358,11 +1372,6 @@ def _build_overall_top(
           <td class="r" style="width:5%;font-weight:800;color:{mc}">
             {grade}
             <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
-          </td>
-        </tr>
-        <tr style="background:#f7fbff">
-          <td colspan="14" style="padding:4px 10px 14px;border-bottom:2px solid #bfdbfe">
-            {why}
           </td>
         </tr>"""
 
