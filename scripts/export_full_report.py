@@ -682,22 +682,26 @@ details.why summary:hover { background:#dbeafe; }
 .why-arrow { display:inline-block; transition:transform .2s ease; flex-shrink:0; }
 details.why[open] summary .why-arrow { transform:rotate(90deg); }
 
-/* The expanded panel — breaks out of the narrow <td> using absolute positioning */
+/* The expanded panel — fixed positioning so it escapes any clipping ancestor */
 details.why { position:relative; }
+/* td containing a why-details must not clip overflow */
+.stbl td { overflow:visible !important; }
 .why-body {
   display:none;
-  position:absolute;
-  /* align to the left edge of the section card (closest positioned ancestor) */
-  left:-160px;          /* rough offset to reach column #1 — overridden by JS below */
-  top:calc(100% + 4px);
-  width:700px;
-  max-width:90vw;
-  z-index:50;
-  background:#f7f8fa;
-  border-left:3px solid #3b82d4;
-  border-radius:0 8px 8px 0;
-  padding:16px 20px;
-  box-shadow:0 4px 24px rgba(0,0,0,.12);
+  /* fixed: escapes table/td overflow clipping entirely */
+  position:fixed;
+  top:0; left:0;          /* JS sets exact coords via getBoundingClientRect */
+  width:860px;
+  max-width:95vw;
+  z-index:9999;
+  background:#fff;
+  border:1px solid #bfdbfe;
+  border-left:4px solid #3b82d4;
+  border-radius:10px;
+  padding:22px 26px;
+  box-shadow:0 12px 40px rgba(0,0,0,.18);
+  overflow-y:auto;
+  max-height:80vh;
 }
 details.why[open] .why-body { display:block; }
 
@@ -2376,31 +2380,81 @@ def build_full_report(out_path: Path) -> None:
 </div>
 
 <script>
-/* Reposition every .why-body panel to span the full .section card width,
-   regardless of which narrow <td> column the <details> sits in. */
+/* Position every .why-body panel using fixed coords derived from the
+   summary button's screen position. Works regardless of scroll, table
+   clipping, or which container the details sits in.                    */
 (function () {{
-  function reposition(det) {{
+
+  function positionPanel(det) {{
     var panel = det.querySelector('.why-body');
-    if (!panel) return;
-    var section = det.closest('.section');
-    if (!section) return;
-    var sR = section.getBoundingClientRect();
-    var dR = det.getBoundingClientRect();
-    panel.style.left     = (sR.left - dR.left + 16) + 'px';
-    panel.style.width    = Math.min(sR.width - 32, 1380) + 'px';
-    panel.style.maxWidth = '95vw';
+    if (!panel || !det.open) return;
+
+    var summary = det.querySelector('summary');
+    var anchor  = summary ? summary.getBoundingClientRect() : det.getBoundingClientRect();
+
+    /* Align panel with the left edge of .sec-body or .page — whichever is closest */
+    var container = det.closest('.sec-body') || det.closest('.section') || document.querySelector('.page');
+    var cR = container ? container.getBoundingClientRect() : {{ left:20, width: window.innerWidth - 40 }};
+
+    /* panel left = left of container, with a small inset */
+    var left  = Math.max(cR.left + 8, 8);
+    var width = Math.min(cR.width - 16, 1380, window.innerWidth - left - 8);
+
+    /* top = just below the summary button */
+    var top = anchor.bottom + 6;
+    /* if it would overflow viewport bottom, flip above */
+    var panelH = Math.min(window.innerHeight * 0.80, 700);
+    if (top + panelH > window.innerHeight - 20) {{
+      top = Math.max(anchor.top - panelH - 6, 8);
+    }}
+
+    panel.style.left   = left + 'px';
+    panel.style.top    = top + 'px';
+    panel.style.width  = Math.max(width, 380) + 'px';
   }}
-  /* toggle event fires when open state changes */
+
+  function closeOthers(current) {{
+    document.querySelectorAll('details.why[open]').forEach(function (d) {{
+      if (d !== current) d.removeAttribute('open');
+    }});
+  }}
+
+  /* Re-position on resize / scroll */
+  window.addEventListener('resize', function () {{
+    document.querySelectorAll('details.why[open]').forEach(positionPanel);
+  }});
+  window.addEventListener('scroll', function () {{
+    document.querySelectorAll('details.why[open]').forEach(positionPanel);
+  }}, true);
+
+  /* Click outside → close */
+  document.addEventListener('click', function (e) {{
+    if (!e.target.closest('details.why')) {{
+      document.querySelectorAll('details.why[open]').forEach(function (d) {{
+        d.removeAttribute('open');
+      }});
+    }}
+  }});
+
+  /* toggle event — capture phase so it fires right as open flips to true */
   document.addEventListener('toggle', function (e) {{
     var det = e.target;
-    if (det.classList && det.classList.contains('why') && det.open) reposition(det);
+    if (!det.classList || !det.classList.contains('why')) return;
+    if (det.open) {{
+      closeOthers(det);
+      positionPanel(det);
+      requestAnimationFrame(function () {{ positionPanel(det); }});
+    }}
   }}, true);
-  /* fallback: click for browsers that fire toggle after paint */
+
+  /* click fallback (some browsers fire toggle after layout) */
   document.querySelectorAll('details.why').forEach(function (det) {{
     det.addEventListener('click', function () {{
-      setTimeout(function () {{ if (det.open) reposition(det); }}, 0);
+      setTimeout(function () {{ if (det.open) positionPanel(det); }}, 0);
+      setTimeout(function () {{ if (det.open) positionPanel(det); }}, 120);
     }});
   }});
+
 }})();
 </script>
 </body>
