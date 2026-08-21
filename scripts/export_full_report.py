@@ -1591,101 +1591,107 @@ def build_full_report(out_path: Path) -> None:
     methodology = """
     <span class="section-anchor" id="methodology"></span>
     <div class="section">
-      <div class="section-title">Cum funcționează motorul</div>
+      <div class="section-title">How the Engine Works</div>
       <div class="section-sub">
-        Descrierea reală, la zi, a tot ce rulează în sistem — fără roadmap-uri sau funcții planificate.
+        Accurate, up-to-date description of every capability running in the system —
+        no roadmap items or unimplemented features.
       </div>
 
-      <!-- ── 1. Date ── -->
+      <!-- ── 1. Data ── -->
       <div style="font-size:14px;font-weight:800;color:#1f2328;margin:20px 0 10px">
-        1 &nbsp;·&nbsp; Sursa datelor
+        1 &nbsp;·&nbsp; Data Source
       </div>
       <div class="ib blue" style="margin-bottom:0">
-        Universul S&amp;P 500 (503 tickers) este preluat live prin scraping Wikipedia la fiecare rulare.
-        Datele financiare vin din <strong>Yahoo Finance via <code>yfinance</code></strong>:
-        prețuri, bilanț, cont de profit&amp;pierdere, cash flow (3–5 ani istorici), beta, dividende.
-        Fiecare ticker trece printr-un mecanism de <strong>retry cu backoff exponențial</strong> (3 încercări).
-        Tot ce se descarcă se salvează în <strong>DuckDB local</strong> (<code>data/cache.duckdb</code>) —
-        TTL = 0 pentru prețuri și financiare (date proaspete la fiecare rulare),
-        TTL = 1 zi pentru istoricul de prețuri (datele istorice nu se schimbă).
-        O re-rulare completă din cache durează ~8 secunde.
+        The S&amp;P 500 universe (503 tickers) is fetched live by scraping Wikipedia on every run.
+        Financial data comes from <strong>Yahoo Finance via <code>yfinance</code></strong>:
+        prices, balance sheet, income statement, cash flow (3–5 years of history), beta, dividends.
+        Every ticker goes through a <strong>retry mechanism with exponential backoff</strong> (3 attempts).
+        Everything downloaded is stored in a <strong>local DuckDB cache</strong>
+        (<code>data/cache.duckdb</code>) —
+        TTL&nbsp;=&nbsp;0 for prices and financials (always fresh on each run),
+        TTL&nbsp;=&nbsp;1&nbsp;day for price history (historical closes never change).
+        A full re-run from cache completes in ~8 seconds.
       </div>
 
-      <!-- ── 2. Evaluare ── -->
+      <!-- ── 2. Valuation ── -->
       <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        2 &nbsp;·&nbsp; Modele de evaluare (Valoare intrinsecă)
+        2 &nbsp;·&nbsp; Valuation Models (Intrinsic Value)
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#f7f8fa">
           <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a;width:22%">Model</th>
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">Cum funcționează</th>
+          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">How it works</th>
         </tr></thead>
         <tbody>
           <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF — Gordon Growth Model</td>
+            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF &mdash; Gordon Growth Model</td>
             <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              Media FCF pe 3–5 ani istorici, proiectată 10 ani cu o rată de creștere calculată
-              (<em>g = ROE × Retention Ratio</em>, capped la WACC−1%). Valoare terminală cu perpetuitate.
-              WACC per-companie: Ke×(E/V) + Kd×(1−t)×(D/V), cu rata risk-free din yield-ul US 10Y
-              (^TNX, live din Yahoo Finance). Rezultatul e împărțit la numărul de acțiuni.
+              3&ndash;5 year average Free Cash Flow projected over 10 years using a computed growth rate
+              (<em>g&nbsp;=&nbsp;ROE &times; Retention Ratio</em>, capped at WACC&minus;1%).
+              Terminal value via perpetuity formula.
+              Per-company WACC: Ke&times;(E/V)&nbsp;+&nbsp;Kd&times;(1&minus;t)&times;(D/V),
+              with the risk-free rate pulled live from the US 10-Year Treasury yield (^TNX via Yahoo Finance).
+              Result divided by shares outstanding to get per-share intrinsic value.
             </td>
           </tr>
           <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF — Exit Multiple</td>
+            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF &mdash; Exit Multiple</td>
             <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              EBITDA mediu proiectat 10 ani, multiplicat cu 12× la exit, ajustat cu net debt,
-              totul actualizat cu același WACC dinamic. Al doilea model independent de GGM.
+              Average EBITDA projected 10 years, multiplied by a 12&times; exit multiple,
+              adjusted for net debt, then discounted back using the same dynamic WACC.
+              A fully independent second model that cross-checks the GGM result.
             </td>
           </tr>
           <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DDM — Dividend Discount</td>
+            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DDM &mdash; Dividend Discount</td>
             <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              Activat automat pentru sectorul <strong>Financial</strong> (bănci, asigurători)
-              unde FCF-ul din cash flow statement nu reflectă realitatea economică.
-              Formula Gordon: P = D₁ / (r − g).
+              Activated automatically for the <strong>Financial sector</strong> (banks, insurers)
+              where FCF from the cash flow statement does not reflect true economic earnings.
+              Gordon formula: P&nbsp;=&nbsp;D&#8321;&nbsp;/&nbsp;(r&nbsp;&minus;&nbsp;g).
             </td>
           </tr>
           <tr>
-            <td style="padding:10px 14px;font-weight:700">Valoare intrinsecă finală</td>
+            <td style="padding:10px 14px;font-weight:700">Final intrinsic value</td>
             <td style="padding:10px 14px">
-              Media aritmetică GGM + Exit Multiple (sau DDM dacă sector Financial).
-              <strong>Marja de Siguranță</strong> = (Intrinsic − Preț) / Intrinsic × 100.
-              Valori pozitive = companie potențial subevaluată.
+              Arithmetic average of GGM and Exit Multiple (or DDM alone for Financial sector).
+              <strong>Margin of Safety</strong>&nbsp;=&nbsp;(Intrinsic&nbsp;&minus;&nbsp;Price)&nbsp;/&nbsp;Intrinsic&nbsp;&times;&nbsp;100.
+              Positive values indicate a potentially undervalued company.
             </td>
           </tr>
         </tbody>
       </table>
 
-      <!-- ── 3. Multipli & scoruri ── -->
+      <!-- ── 3. Multiples & scores ── -->
       <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        3 &nbsp;·&nbsp; Multipli de piață și scoruri de calitate
+        3 &nbsp;·&nbsp; Market Multiples &amp; Quality Scores
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#f7f8fa">
           <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a;width:22%">Metric</th>
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">Interpretare</th>
+          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">What it means</th>
         </tr></thead>
         <tbody>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">P/E, P/B, EV/EBITDA, P/FCF</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Multipli relativi calculați din prețul curent și datele financiare. P/FCF e cel mai important — măsoară cash real, nu profit contabil.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Net Debt / EBITDA</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Gradul de îndatorare. &gt;3.5× declanșează automat steagul <em>Value Trap</em> și exclude compania din filtrele stricte.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Piotroski F-Score (0–9)</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">9 criterii binare: 4 profitabilitate, 3 levier/lichiditate, 2 eficiență operațională. ≥7 = solid, ≤3 = deteriorare.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Altman Z-Score</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Model de predicție a falimentului. Prag calibrat la 1.0 (față de 1.81 original) pentru a acoperi sectoarele media/telecom cu active intangibile mari. &lt;1.0 = distress real.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">ROIC</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Return on Invested Capital = NOPAT / (Equity + Debt − Cash). ≥10% = avantaj competitiv real (cost of capital depășit). ≥15% = moat puternic.</td></tr>
-          <tr><td style="padding:9px 14px;font-weight:700">Composite Score (0–100)</td><td style="padding:9px 14px">Scor agregat: MoS% 40% + Piotroski 25% + ROIC 25% + Poziție 52w 10%. Folosit intern pentru ranking.</td></tr>
+          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">P/E, P/B, EV/EBITDA, P/FCF</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Relative multiples computed from the current price and reported financials. P/FCF is the most important — it measures real cash, not accounting profit which can be manipulated.</td></tr>
+          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Net Debt / EBITDA</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Leverage ratio. &gt;3.5&times; automatically triggers the <em>Value Trap</em> flag, excluding the company from all strict screener filters.</td></tr>
+          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Piotroski F-Score (0&ndash;9)</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">9 binary accounting checks: 4 profitability signals, 3 leverage/liquidity signals, 2 operating efficiency signals. &ge;7&nbsp;=&nbsp;strong fundamentals, &le;3&nbsp;=&nbsp;deteriorating.</td></tr>
+          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Altman Z-Score</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Bankruptcy probability model. Threshold calibrated at 1.0 (vs. 1.81 original) to accommodate media/telecom companies with large intangible asset bases. &lt;1.0&nbsp;=&nbsp;real financial distress.</td></tr>
+          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">ROIC</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Return on Invested Capital&nbsp;=&nbsp;NOPAT&nbsp;/&nbsp;(Equity&nbsp;+&nbsp;Debt&nbsp;&minus;&nbsp;Cash). &ge;10%&nbsp;=&nbsp;real competitive advantage (cost of capital exceeded). &ge;15%&nbsp;=&nbsp;strong economic moat.</td></tr>
+          <tr><td style="padding:9px 14px;font-weight:700">Composite Score (0&ndash;100)</td><td style="padding:9px 14px">Aggregate score: MoS%&nbsp;40% + Piotroski&nbsp;25% + ROIC&nbsp;25% + 52w Position&nbsp;10%. Used internally for ranking within each screener profile.</td></tr>
         </tbody>
       </table>
 
       <!-- ── 4. Screener ── -->
       <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        4 &nbsp;·&nbsp; Screener — ProfileFit și filtrele stricte
+        4 &nbsp;·&nbsp; Screener &mdash; ProfileFit &amp; Strict Filters
       </div>
       <div class="ib blue" style="margin-bottom:0">
-        Fiecare companie primește un <strong>ProfileFit Score (0–100)</strong> față de fiecare profil,
-        calculat ca 70% proximitate față de toate pragurile profilului + 30% Composite Score.
-        <strong>PASS</strong> = îndeplinește <em>toate</em> criteriile strict.
-        <strong>NEAR</strong> = ratează unul sau mai multe, dar e rankată.
-        <strong>TRAP</strong> = steag Value Trap activ (datorii excesive sau FCF negativ pe toți anii).
-        Nicio companie nu e ascunsă din raport — toate 503 sunt rankate per profil.
+        Every company receives a <strong>ProfileFit Score (0&ndash;100)</strong> for each profile,
+        calculated as 70% proximity to all profile thresholds + 30% Composite Score.
+        <strong style="color:#16a34a">PASS</strong> = meets <em>all</em> criteria strictly.
+        <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but is still ranked.
+        <strong style="color:#dc2626">TRAP</strong> = Value Trap flag active (excessive leverage or
+        all FCF years negative).
+        No company is ever hidden from the report &mdash; all 503 are ranked per profile.
       </div>
 
       <!-- ── 5. Backtest ── -->
@@ -1693,18 +1699,21 @@ def build_full_report(out_path: Path) -> None:
         5 &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500
       </div>
       <div class="ib blue" style="margin-bottom:12px">
-        Simulare anuală: top-N companii din Deep Value cumpărate la prima zi de tranzacționare
-        a anului, vândute la prima zi a anului următor. Benchmark: <strong>^GSPC (S&amp;P 500)</strong>.
-        Metrici calculate pe seria de randamente anuale:
-        <strong>CAGR, Sharpe Ratio, Sortino Ratio, Max Drawdown, Win Rate pe acțiune</strong>.
-        Rezoluție nearest-trading-day pentru sărbători/weekenduri.
+        Annual simulation: the top-N Deep Value picks are bought on the first trading day of the year
+        and sold on the first trading day of the following year.
+        Benchmark: <strong>^GSPC (S&amp;P 500 Index)</strong>. Equal-weighted portfolio.
+        Metrics computed from the annual return series:
+        <strong>CAGR, Sharpe Ratio, Sortino Ratio, Max Drawdown, per-stock Win Rate</strong>.
+        Nearest-trading-day resolution handles holidays and weekends.
       </div>
       <div class="ib" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;margin-bottom:0">
-        <strong>Limitări importante:</strong>
-        (1) <strong>Look-ahead bias</strong> — filtrele folosesc datele financiare curente pentru toți anii istorici.
-        (2) <strong>Survivorship bias</strong> — universul conține doar constituenții actuali ai S&amp;P 500.
-        (3) Fără costuri de tranzacție, slippage sau taxe.
-        Rezultatele sunt <em>indicatori direcționali</em>, nu predicții de viitor.
+        <strong>Important limitations:</strong>
+        (1) <strong>Look-ahead bias</strong> &mdash; filters use current financials as screening criteria
+        for all historical years; real point-in-time data would differ.
+        (2) <strong>Survivorship bias</strong> &mdash; universe contains only current S&amp;P 500
+        constituents; companies removed since the start year are excluded.
+        (3) No transaction costs, slippage, or taxes modelled.
+        Treat results as <em>directional indicators</em> of strategy quality, not reliable predictions.
       </div>
 
     </div>"""
