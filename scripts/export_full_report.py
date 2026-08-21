@@ -327,17 +327,12 @@ def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | No
 
     body = '  '.join(sentences)
     return f"""
-    <details class="why" style="margin-top:8px">
-      <summary style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;
-                      font-size:11px;font-weight:700;color:#3b82d4;text-transform:uppercase;
-                      letter-spacing:.07em;list-style:none;user-select:none;
-                      padding:4px 10px;background:#eff6ff;border:1px solid #bfdbfe;
-                      border-radius:20px;transition:background .15s">
-        <span class="why-arrow" style="font-size:13px;line-height:1">&#9654;</span>
+    <details class="why">
+      <summary>
+        <span class="why-arrow">&#9654;</span>
         Why buy {ticker}?
       </summary>
-      <div style="margin-top:8px;background:#f7f8fa;border-left:3px solid #3b82d4;
-                  border-radius:0 8px 8px 0;padding:14px 18px;">
+      <div class="why-body">
         <div style="font-size:13px;line-height:1.75;color:#374151">{body}</div>
       </div>
     </details>"""
@@ -349,7 +344,7 @@ _CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
        font-size: 13px; line-height: 1.6; background: #f0f2f5; color: #1f2328; }
-.page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
+.page { max-width: 1430px; margin: 0 auto; padding: 32px 24px 60px; }
 
 /* nav */
 .toc { background:#fff; border:1px solid #e5e7eb; border-radius:10px;
@@ -478,11 +473,38 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
 .ib.blue  { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
 .ib.green { background:#f0fdf4; border:1px solid #bbf7d0; color:#14532d; }
 
-/* Why-buy collapsible */
+/* Why-buy collapsible ─────────────────────────────────────────────────────── */
+details.why { position:static; margin-top:6px; }
+details.why summary {
+  cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+  font-size:11px; font-weight:700; color:#3b82d4; text-transform:uppercase;
+  letter-spacing:.07em; list-style:none; user-select:none;
+  padding:4px 10px; background:#eff6ff; border:1px solid #bfdbfe;
+  border-radius:20px; transition:background .15s; white-space:nowrap;
+}
 details.why summary::-webkit-details-marker { display:none; }
-details summary:hover { background:#dbeafe !important; }
-details[open] summary .why-arrow { transform:rotate(90deg); }
-.why-arrow { display:inline-block; transition:transform .2s ease; }
+details.why summary:hover { background:#dbeafe; }
+.why-arrow { display:inline-block; transition:transform .2s ease; flex-shrink:0; }
+details.why[open] summary .why-arrow { transform:rotate(90deg); }
+
+/* The expanded panel — breaks out of the narrow <td> using absolute positioning */
+details.why { position:relative; }
+.why-body {
+  display:none;
+  position:absolute;
+  /* align to the left edge of the section card (closest positioned ancestor) */
+  left:-160px;          /* rough offset to reach column #1 — overridden by JS below */
+  top:calc(100% + 4px);
+  width:700px;
+  max-width:90vw;
+  z-index:50;
+  background:#f7f8fa;
+  border-left:3px solid #3b82d4;
+  border-radius:0 8px 8px 0;
+  padding:16px 20px;
+  box-shadow:0 4px 24px rgba(0,0,0,.12);
+}
+details.why[open] .why-body { display:block; }
 
 /* footer */
 .footer { text-align:center; font-size:11px; color:#8d96a0;
@@ -1667,6 +1689,35 @@ def build_full_report(out_path: Path) -> None:
   </div>
 
 </div>
+
+<script>
+/* Reposition every .why-body panel to span the full .section card width,
+   regardless of which narrow <td> column the <details> sits in. */
+(function () {{
+  function reposition(det) {{
+    var panel = det.querySelector('.why-body');
+    if (!panel) return;
+    var section = det.closest('.section');
+    if (!section) return;
+    var sR = section.getBoundingClientRect();
+    var dR = det.getBoundingClientRect();
+    panel.style.left     = (sR.left - dR.left + 16) + 'px';
+    panel.style.width    = Math.min(sR.width - 32, 1380) + 'px';
+    panel.style.maxWidth = '95vw';
+  }}
+  /* toggle event fires when open state changes */
+  document.addEventListener('toggle', function (e) {{
+    var det = e.target;
+    if (det.classList && det.classList.contains('why') && det.open) reposition(det);
+  }}, true);
+  /* fallback: click for browsers that fire toggle after paint */
+  document.querySelectorAll('details.why').forEach(function (det) {{
+    det.addEventListener('click', function () {{
+      setTimeout(function () {{ if (det.open) reposition(det); }}, 0);
+    }});
+  }});
+}})();
+</script>
 </body>
 </html>"""
 
