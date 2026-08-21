@@ -188,58 +188,96 @@ class TestDfToBalanceSheetRows:
 
 class TestCacheStore:
     def test_set_and_get_info_within_ttl(self, cache):
-        payload = _make_info_payload()
-        cache.set_info("AAPL", payload)
-        result = cache.get_info("AAPL")
-        assert result is not None
-        assert result["current_price"] == pytest.approx(150.0)
-        assert result["short_name"] == "Apple Inc."
+        """Patches INFO_TTL to 1 hour so test is independent of the
+        production TTL value (which is 0 for always-refresh mode).
+        """
+        import src.fetcher as fetcher_mod
+        original = fetcher_mod.INFO_TTL
+        fetcher_mod.INFO_TTL = timedelta(hours=1)
+        try:
+            payload = _make_info_payload()
+            cache.set_info("AAPL", payload)
+            result = cache.get_info("AAPL")
+            assert result is not None
+            assert result["current_price"] == pytest.approx(150.0)
+            assert result["short_name"] == "Apple Inc."
+        finally:
+            fetcher_mod.INFO_TTL = original
 
     def test_get_info_returns_none_for_missing(self, cache):
         assert cache.get_info("MISSING") is None
 
     def test_get_info_returns_none_when_expired(self, cache):
-        payload = _make_info_payload()
-        cache.set_info("AAPL", payload)
-
-        # Manually backdate the fetched_at timestamp (naive UTC — matches DB storage)
-        expired = datetime.now(UTC).replace(tzinfo=None) - INFO_TTL - timedelta(seconds=1)
-        cache._conn().execute(
-            "UPDATE ticker_info SET fetched_at = ? WHERE ticker = 'AAPL'",
-            [expired],
-        )
-        assert cache.get_info("AAPL") is None
+        """Patches INFO_TTL to 1 hour then backdates row by 1h+1s —
+        guarantees expiry regardless of production TTL value.
+        """
+        import src.fetcher as fetcher_mod
+        original = fetcher_mod.INFO_TTL
+        fetcher_mod.INFO_TTL = timedelta(hours=1)
+        try:
+            payload = _make_info_payload()
+            cache.set_info("AAPL", payload)
+            expired = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1, seconds=1)
+            cache._conn().execute(
+                "UPDATE ticker_info SET fetched_at = ? WHERE ticker = 'AAPL'",
+                [expired],
+            )
+            assert cache.get_info("AAPL") is None
+        finally:
+            fetcher_mod.INFO_TTL = original
 
     def test_set_financials_and_get_cashflow(self, cache):
-        rows = _make_cf_rows()
-        cache.set_financials("AAPL", "cashflow", rows)
-        result = cache.get_financials("AAPL", "cashflow")
-        assert result is not None
-        assert len(result) == 3
-        dates = {r["period_date"] for r in result}
-        assert "2023-09-30" in dates
+        """Patches FINANCIALS_TTL to 1 hour so freshly-written data is returned."""
+        import src.fetcher as fetcher_mod
+        original = fetcher_mod.FINANCIALS_TTL
+        fetcher_mod.FINANCIALS_TTL = timedelta(hours=1)
+        try:
+            rows = _make_cf_rows()
+            cache.set_financials("AAPL", "cashflow", rows)
+            result = cache.get_financials("AAPL", "cashflow")
+            assert result is not None
+            assert len(result) == 3
+            dates = {r["period_date"] for r in result}
+            assert "2023-09-30" in dates
+        finally:
+            fetcher_mod.FINANCIALS_TTL = original
 
     def test_get_financials_returns_none_for_missing(self, cache):
         assert cache.get_financials("MISSING", "cashflow") is None
 
     def test_get_financials_returns_none_when_expired(self, cache):
-        rows = _make_cf_rows()
-        cache.set_financials("AAPL", "cashflow", rows)
-        # Naive UTC — matches DB storage
-        expired = datetime.now(UTC).replace(tzinfo=None) - FINANCIALS_TTL - timedelta(seconds=1)
-        cache._conn().execute(
-            "UPDATE cashflow SET fetched_at = ? WHERE ticker = 'AAPL'",
-            [expired],
-        )
-        assert cache.get_financials("AAPL", "cashflow") is None
+        """Patches FINANCIALS_TTL to 1 hour so test is independent of
+        production TTL value (which may be 0 for always-refresh mode).
+        """
+        import src.fetcher as fetcher_mod
+        original = fetcher_mod.FINANCIALS_TTL
+        fetcher_mod.FINANCIALS_TTL = timedelta(hours=1)
+        try:
+            rows = _make_cf_rows()
+            cache.set_financials("AAPL", "cashflow", rows)
+            expired = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1, seconds=1)
+            cache._conn().execute(
+                "UPDATE cashflow SET fetched_at = ? WHERE ticker = 'AAPL'",
+                [expired],
+            )
+            assert cache.get_financials("AAPL", "cashflow") is None
+        finally:
+            fetcher_mod.FINANCIALS_TTL = original
 
     def test_upsert_overwrites_existing(self, cache):
-        cache.set_info("AAPL", _make_info_payload())
-        updated = _make_info_payload()
-        updated["current_price"] = 200.0
-        cache.set_info("AAPL", updated)
-        result = cache.get_info("AAPL")
-        assert result["current_price"] == pytest.approx(200.0)
+        """Patches INFO_TTL to 1 hour so freshly-written data is returned."""
+        import src.fetcher as fetcher_mod
+        original = fetcher_mod.INFO_TTL
+        fetcher_mod.INFO_TTL = timedelta(hours=1)
+        try:
+            cache.set_info("AAPL", _make_info_payload())
+            updated = _make_info_payload()
+            updated["current_price"] = 200.0
+            cache.set_info("AAPL", updated)
+            result = cache.get_info("AAPL")
+            assert result["current_price"] == pytest.approx(200.0)
+        finally:
+            fetcher_mod.INFO_TTL = original
 
     def test_invalid_statement_raises(self, cache):
         with pytest.raises(ValueError):
@@ -298,13 +336,25 @@ class TestFetchTicker:
 
     @patch("src.fetcher.yf.Ticker")
     def test_cache_is_populated_after_fetch(self, mock_yf_class, cache):
-        mock_yf_class.return_value = self._make_yf_ticker_mock()
-        fetch_ticker("AAPL", cache)
-        # Second call should hit cache — mock should NOT be called again
-        mock_yf_class.reset_mock()
-        result = fetch_ticker("AAPL", cache)
-        mock_yf_class.assert_not_called()
-        assert result is not None
+        """Second fetch hits cache (no yfinance call).
+        Patches INFO_TTL + FINANCIALS_TTL to 1 hour so cache is valid
+        between the two calls, independent of production TTL=0.
+        """
+        import src.fetcher as fetcher_mod
+        orig_info = fetcher_mod.INFO_TTL
+        orig_fin  = fetcher_mod.FINANCIALS_TTL
+        fetcher_mod.INFO_TTL       = timedelta(hours=1)
+        fetcher_mod.FINANCIALS_TTL = timedelta(hours=1)
+        try:
+            mock_yf_class.return_value = self._make_yf_ticker_mock()
+            fetch_ticker("AAPL", cache)
+            mock_yf_class.reset_mock()
+            result = fetch_ticker("AAPL", cache)
+            mock_yf_class.assert_not_called()
+            assert result is not None
+        finally:
+            fetcher_mod.INFO_TTL       = orig_info
+            fetcher_mod.FINANCIALS_TTL = orig_fin
 
     @patch("src.fetcher.yf.Ticker")
     def test_returns_none_on_empty_info(self, mock_yf_class, cache):
