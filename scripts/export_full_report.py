@@ -126,53 +126,51 @@ _PROFILE_PLAIN = {
 
 
 def _52w_svg(price_v: float | None, low_v: float | None, high_v: float | None) -> str:
-    """Inline SVG 52-week range bar with price marker. Returns '' if data missing."""
+    """
+    Inline SVG 52-week range bar with accurate price marker.
+    Uses a pure HTML/CSS approach: percentage-positioned absolute div overlay
+    on a gradient track — no SVG coordinate scaling issues whatsoever.
+    """
     if low_v is None or high_v is None or price_v is None:
         return ""
     span = high_v - low_v
     if span <= 0:
         return ""
-    pct = min(max((price_v - low_v) / span, 0.0), 1.0)
-    # Fixed coordinate space — viewBox ensures marker position is always accurate
-    # regardless of how wide the rendered SVG becomes in the browser.
-    W = 300; bar_y = 18; bar_h = 10
-    mx = round(pct * W, 1)
-    mc = "#16a34a" if pct < 0.33 else ("#eab308" if pct < 0.66 else "#e11d48")
-    label = "near annual low ✓" if pct < 0.25 else ("near annual high ⚠" if pct > 0.75 else f"{pct*100:.0f}% of range")
-    # clamp price label x so it never overflows left/right edge
-    tx = min(max(mx, 28), W - 28)
-    gid = f"rg52w{abs(hash((price_v, low_v, high_v))) % 100000}"
-    return (
-        f'<div style="margin:0">'
-        # viewBox + preserveAspectRatio: SVG scales uniformly → coordinates always correct
-        f'<svg viewBox="0 0 {W} 38" preserveAspectRatio="xMidYMid meet"'
-        f' style="display:block;width:100%;height:auto;max-width:{W}px">'
-        f'<defs><linearGradient id="{gid}" x1="0" x2="1" y1="0" y2="0">'
-        f'<stop offset="0%"   stop-color="#16a34a" stop-opacity=".35"/>'
-        f'<stop offset="50%"  stop-color="#eab308" stop-opacity=".35"/>'
-        f'<stop offset="100%" stop-color="#e11d48" stop-opacity=".35"/>'
-        f'</linearGradient></defs>'
-        # track
-        f'<rect x="0" y="{bar_y}" width="{W}" height="{bar_h}" fill="url(#{gid})" rx="5"/>'
-        # vertical marker line
-        f'<line x1="{mx}" y1="{bar_y-4}" x2="{mx}" y2="{bar_y+bar_h+4}"'
-        f' stroke="{mc}" stroke-width="2" stroke-linecap="round"/>'
-        # marker circle
-        f'<circle cx="{mx}" cy="{bar_y + bar_h//2}" r="5"'
-        f' fill="{mc}" stroke="#fff" stroke-width="1.5"/>'
-        # low label (left)
-        f'<text x="1" y="37" font-size="9" fill="#8d96a0" font-family="monospace">${low_v:,.0f}</text>'
-        # high label (right)
-        f'<text x="{W-1}" y="37" font-size="9" fill="#8d96a0" font-family="monospace"'
-        f' text-anchor="end">${high_v:,.0f}</text>'
-        # price label above marker
-        f'<text x="{tx}" y="{bar_y-6}" font-size="9" fill="{mc}" font-weight="bold"'
-        f' font-family="monospace" text-anchor="middle">${price_v:,.2f}</text>'
-        f'</svg>'
-        f'<div style="font-size:11px;color:{mc};font-weight:700;margin-top:2px">'
-        f'{pct*100:.0f}% of 52w range — {label}</div>'
-        f'</div>'
+    pct   = min(max((price_v - low_v) / span, 0.0), 1.0)
+    pct_p = f"{pct * 100:.4f}%"   # CSS left% for the marker
+    mc    = "#16a34a" if pct < 0.33 else ("#eab308" if pct < 0.66 else "#e11d48")
+    label = (
+        f"near annual low ✓" if pct < 0.25 else
+        (f"near annual high ⚠" if pct > 0.75 else f"{pct*100:.0f}% of 52w range")
     )
+
+    return f"""<div style="margin:0;padding-top:18px">
+  <!-- price label above marker — left% anchored to pct -->
+  <div style="position:relative;height:16px;margin-bottom:2px">
+    <div style="position:absolute;left:{pct_p};transform:translateX(-50%);
+                font-size:10px;font-weight:700;color:{mc};
+                font-family:monospace;white-space:nowrap">
+      ${price_v:,.2f}
+    </div>
+  </div>
+  <!-- gradient track + marker -->
+  <div style="position:relative;height:12px;border-radius:6px;
+              background:linear-gradient(to right,#16a34a55,#eab30855,#e11d4855)">
+    <!-- marker pin -->
+    <div style="position:absolute;left:{pct_p};top:50%;
+                transform:translate(-50%,-50%);
+                width:14px;height:14px;border-radius:50%;
+                background:{mc};border:2.5px solid #fff;
+                box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>
+  </div>
+  <!-- low / high labels -->
+  <div style="display:flex;justify-content:space-between;
+              font-size:10px;color:#8d96a0;font-family:monospace;margin-top:3px">
+    <span>${low_v:,.0f}</span>
+    <span style="font-size:10px;color:{mc};font-weight:700">{pct*100:.0f}% — {label}</span>
+    <span>${high_v:,.0f}</span>
+  </div>
+</div>"""
 
 
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
