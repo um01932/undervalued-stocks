@@ -127,6 +127,51 @@ _PROFILE_PLAIN = {
 
 
 
+def _52w_bar(price_v: float | None, low_v: float | None, high_v: float | None) -> str:
+    """Pure-CSS 52-week range bar.
+    ONE outer position:relative box — price label, track, and dot all share
+    the exact same coordinate space, so left:N% is always accurate."""
+    if low_v is None or high_v is None or price_v is None:
+        return ""
+    span = high_v - low_v
+    if span <= 0:
+        return ""
+    pct     = min(max((price_v - low_v) / span, 0.0), 1.0)
+    pct_css = f"{pct * 100:.3f}%"
+    mc  = "#16a34a" if pct < 0.33 else ("#eab308" if pct < 0.66 else "#e11d48")
+    lbl = "near annual low ✓" if pct < 0.25 else ("near annual high ⚠" if pct > 0.75 else f"{pct*100:.0f}% of range")
+
+    # Single position:relative wrapper — 46px tall:
+    #   0–16px  : price label area
+    #   17–29px : track bar (height 12px, centered at y=23)
+    #   30–46px : low/high text (rendered outside via flex row below)
+    return f"""
+<div style="margin:4px 0 0">
+  <!-- single coordinate-space wrapper -->
+  <div style="position:relative;height:30px">
+    <!-- gradient track (sits at bottom of wrapper) -->
+    <div style="position:absolute;left:0;right:0;bottom:0;height:12px;border-radius:6px;
+                background:linear-gradient(to right,#16a34a88,#eab30888,#e11d4888)"></div>
+    <!-- price label — same left% as dot, centered above track -->
+    <div style="position:absolute;left:{pct_css};top:0;transform:translateX(-50%);
+                font-size:10px;font-weight:700;color:{mc};font-family:monospace;
+                white-space:nowrap;line-height:1">${price_v:,.2f}</div>
+    <!-- dot — same left% on the track -->
+    <div style="position:absolute;left:{pct_css};bottom:-1px;transform:translateX(-50%);
+                width:14px;height:14px;border-radius:50%;
+                background:{mc};border:2px solid #fff;
+                box-shadow:0 1px 4px rgba(0,0,0,.28)"></div>
+  </div>
+  <!-- low / label / high below -->
+  <div style="display:flex;justify-content:space-between;
+              margin-top:5px;font-size:10px;font-family:monospace">
+    <span style="color:#8d96a0">${low_v:,.0f}</span>
+    <span style="color:{mc};font-weight:700">{pct*100:.0f}% — {lbl}</span>
+    <span style="color:#8d96a0">${high_v:,.0f}</span>
+  </div>
+</div>"""
+
+
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
     """3 metric cards: MoS, Piotroski, ROIC + composite/overall score badges."""
     def _norm(v, lo, hi):
@@ -411,16 +456,24 @@ def _why_buy(row: dict, profile_key: str | None = None,
 
     body       = '  '.join(sentences)
     cards_html = _score_cards(row, overall_score)
+    bar_html   = _52w_bar(price_v, low_v, high_v)
 
     fit_v = _fv(row.get("ProfileFit", ""))
     sc_v  = overall_score if overall_score is not None else fit_v
     sc_c  = ("#16a34a" if (sc_v or 0) >= 75 else ("#eab308" if (sc_v or 0) >= 55 else "#9ca3af")) if sc_v else "#9ca3af"
 
+    bar_section = f"""
+        <div style="margin-bottom:14px">
+          <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                      letter-spacing:.06em;margin-bottom:6px">52-Week Range</div>
+          {bar_html}
+        </div>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">""" if bar_html else ""
+
     panel_html = f"""
         <!-- Score cards -->
         <div style="margin-bottom:14px">{cards_html}</div>
-        <!-- Divider -->
-        <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
+        {bar_section}
         <!-- Plain-English analysis -->
         <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>"""
 
