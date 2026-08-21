@@ -1593,128 +1593,450 @@ def build_full_report(out_path: Path) -> None:
     <div class="section">
       <div class="section-title">How the Engine Works</div>
       <div class="section-sub">
-        Accurate, up-to-date description of every capability running in the system —
-        no roadmap items or unimplemented features.
+        Every section below is collapsible. Click any heading to expand it.
+        All descriptions reflect what is actually running in the code &mdash; no planned features included.
       </div>
 
-      <!-- ── 1. Data ── -->
-      <div style="font-size:14px;font-weight:800;color:#1f2328;margin:20px 0 10px">
-        1 &nbsp;·&nbsp; Data Source
-      </div>
-      <div class="ib blue" style="margin-bottom:0">
-        The S&amp;P 500 universe (503 tickers) is fetched live by scraping Wikipedia on every run.
-        Financial data comes from <strong>Yahoo Finance via <code>yfinance</code></strong>:
-        prices, balance sheet, income statement, cash flow (3–5 years of history), beta, dividends.
-        Every ticker goes through a <strong>retry mechanism with exponential backoff</strong> (3 attempts).
-        Everything downloaded is stored in a <strong>local DuckDB cache</strong>
-        (<code>data/cache.duckdb</code>) —
-        TTL&nbsp;=&nbsp;0 for prices and financials (always fresh on each run),
-        TTL&nbsp;=&nbsp;1&nbsp;day for price history (historical closes never change).
-        A full re-run from cache completes in ~8 seconds.
-      </div>
+      <!-- helper styles scoped to this section -->
+      <style>
+        .mdet { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px; overflow:hidden; }
+        .mdet summary {
+          display:flex; align-items:center; gap:10px; padding:14px 18px;
+          cursor:pointer; user-select:none; list-style:none;
+          background:#f7f8fa; font-weight:700; font-size:13px; color:#1f2328;
+          transition:background .15s;
+        }
+        .mdet summary::-webkit-details-marker { display:none; }
+        .mdet summary:hover { background:#eff6ff; }
+        .mdet[open] summary { background:#eff6ff; border-bottom:1px solid #e5e7eb; }
+        .mdet[open] summary .marrow { transform:rotate(90deg); }
+        .marrow { display:inline-block; transition:transform .2s; color:#3b82d4; font-size:14px; flex-shrink:0; }
+        .mdet-icon { width:28px; height:28px; border-radius:6px; display:flex;
+                     align-items:center; justify-content:center;
+                     font-size:12px; font-weight:800; flex-shrink:0; }
+        .mdet-body { padding:18px 20px; }
+        .mdet table { width:100%; border-collapse:collapse; font-size:13px; }
+        .mdet table th { padding:8px 12px; text-align:left; background:#f7f8fa;
+                          border-bottom:2px solid #e5e7eb; font-size:11px;
+                          text-transform:uppercase; letter-spacing:.05em; color:#57606a; }
+        .mdet table td { padding:9px 12px; border-bottom:1px solid #f0f2f5; vertical-align:top; }
+        .mdet table tr:last-child td { border-bottom:none; }
+        .thresh { display:inline-block; font-family:monospace; font-size:12px; font-weight:700;
+                  background:#1f232810; border-radius:4px; padding:1px 6px; }
+        .thresh.pass { background:#dcfce7; color:#15803d; }
+        .thresh.fail { background:#fef2f2; color:#dc2626; }
+        .thresh.neutral { background:#eff6ff; color:#1d4ed8; }
+        .lim-list { padding-left:18px; margin:0; }
+        .lim-list li { margin-bottom:6px; line-height:1.6; }
+      </style>
 
-      <!-- ── 2. Valuation ── -->
-      <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        2 &nbsp;·&nbsp; Valuation Models (Intrinsic Value)
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="background:#f7f8fa">
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a;width:22%">Model</th>
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">How it works</th>
-        </tr></thead>
-        <tbody>
-          <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF &mdash; Gordon Growth Model</td>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              3&ndash;5 year average Free Cash Flow projected over 10 years using a computed growth rate
-              (<em>g&nbsp;=&nbsp;ROE &times; Retention Ratio</em>, capped at WACC&minus;1%).
-              Terminal value via perpetuity formula.
-              Per-company WACC: Ke&times;(E/V)&nbsp;+&nbsp;Kd&times;(1&minus;t)&times;(D/V),
-              with the risk-free rate pulled live from the US 10-Year Treasury yield (^TNX via Yahoo Finance).
-              Result divided by shares outstanding to get per-share intrinsic value.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DCF &mdash; Exit Multiple</td>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              Average EBITDA projected 10 years, multiplied by a 12&times; exit multiple,
-              adjusted for net debt, then discounted back using the same dynamic WACC.
-              A fully independent second model that cross-checks the GGM result.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">DDM &mdash; Dividend Discount</td>
-            <td style="padding:10px 14px;border-bottom:1px solid #f0f2f5">
-              Activated automatically for the <strong>Financial sector</strong> (banks, insurers)
-              where FCF from the cash flow statement does not reflect true economic earnings.
-              Gordon formula: P&nbsp;=&nbsp;D&#8321;&nbsp;/&nbsp;(r&nbsp;&minus;&nbsp;g).
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:10px 14px;font-weight:700">Final intrinsic value</td>
-            <td style="padding:10px 14px">
-              Arithmetic average of GGM and Exit Multiple (or DDM alone for Financial sector).
-              <strong>Margin of Safety</strong>&nbsp;=&nbsp;(Intrinsic&nbsp;&minus;&nbsp;Price)&nbsp;/&nbsp;Intrinsic&nbsp;&times;&nbsp;100.
-              Positive values indicate a potentially undervalued company.
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 1. DATA PIPELINE                                                   -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#3b82d418;color:#3b82d4">DB</span>
+          1 &nbsp;&mdash;&nbsp; Data Pipeline &amp; Caching
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:12px;line-height:1.7">
+            The S&amp;P 500 universe (503 tickers) is fetched live by scraping Wikipedia on every run.
+            Financial data is pulled from <strong>Yahoo Finance via <code>yfinance</code></strong>:
+            current price, balance sheet, income statement, cash flow statement (3&ndash;5 years of history),
+            beta, dividends, shares outstanding, and 52-week range.
+            Every ticker goes through a <strong>retry loop with exponential backoff</strong> (3 attempts, ~1s delay doubling).
+            Fetching runs concurrently via <code>ThreadPoolExecutor</code> with a configurable number of workers.
+          </p>
+          <table>
+            <tr><th style="width:22%">What is cached</th><th>TTL policy</th></tr>
+            <tr><td><strong>Prices, multiples, financials</strong></td><td><span class="thresh neutral">TTL = 0</span> &mdash; always re-fetched fresh from Yahoo Finance on every run. Stale prices would produce incorrect valuations.</td></tr>
+            <tr><td><strong>Historical price series</strong></td><td><span class="thresh neutral">TTL = 1 day</span> &mdash; historical closes never change; one-day cache avoids redundant downloads during the backtest.</td></tr>
+            <tr><td><strong>Cache storage</strong></td><td>Single DuckDB file at <code>data/cache.duckdb</code>. Thread-safe writes via a lock. A full re-run from a warm cache completes in ~8 seconds.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Limitation:</strong> Yahoo Finance is an unofficial, undocumented data source.
+            Some tickers may return incomplete or stale data; the engine marks those as
+            <code>INSUFFICIENT_DATA</code> and skips them gracefully.
+          </p>
+        </div>
+      </details>
 
-      <!-- ── 3. Multiples & scores ── -->
-      <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        3 &nbsp;·&nbsp; Market Multiples &amp; Quality Scores
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="background:#f7f8fa">
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a;width:22%">Metric</th>
-          <th style="padding:9px 14px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#57606a">What it means</th>
-        </tr></thead>
-        <tbody>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">P/E, P/B, EV/EBITDA, P/FCF</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Relative multiples computed from the current price and reported financials. P/FCF is the most important — it measures real cash, not accounting profit which can be manipulated.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Net Debt / EBITDA</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Leverage ratio. &gt;3.5&times; automatically triggers the <em>Value Trap</em> flag, excluding the company from all strict screener filters.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Piotroski F-Score (0&ndash;9)</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">9 binary accounting checks: 4 profitability signals, 3 leverage/liquidity signals, 2 operating efficiency signals. &ge;7&nbsp;=&nbsp;strong fundamentals, &le;3&nbsp;=&nbsp;deteriorating.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">Altman Z-Score</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Bankruptcy probability model. Threshold calibrated at 1.0 (vs. 1.81 original) to accommodate media/telecom companies with large intangible asset bases. &lt;1.0&nbsp;=&nbsp;real financial distress.</td></tr>
-          <tr><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5;font-weight:700">ROIC</td><td style="padding:9px 14px;border-bottom:1px solid #f0f2f5">Return on Invested Capital&nbsp;=&nbsp;NOPAT&nbsp;/&nbsp;(Equity&nbsp;+&nbsp;Debt&nbsp;&minus;&nbsp;Cash). &ge;10%&nbsp;=&nbsp;real competitive advantage (cost of capital exceeded). &ge;15%&nbsp;=&nbsp;strong economic moat.</td></tr>
-          <tr><td style="padding:9px 14px;font-weight:700">Composite Score (0&ndash;100)</td><td style="padding:9px 14px">Aggregate score: MoS%&nbsp;40% + Piotroski&nbsp;25% + ROIC&nbsp;25% + 52w Position&nbsp;10%. Used internally for ranking within each screener profile.</td></tr>
-        </tbody>
-      </table>
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 2. VALUATION MODELS                                                -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#059669 18;color:#059669">IV</span>
+          2 &nbsp;&mdash;&nbsp; Valuation Models &mdash; How Intrinsic Value is Computed
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            Every company gets a per-share intrinsic value from two independent DCF models (or DDM for
+            financial-sector companies). The final value is their arithmetic average.
+            <strong>Margin of Safety = (Intrinsic &minus; Price) / Intrinsic &times; 100.</strong>
+          </p>
+          <table>
+            <tr><th style="width:22%">Model</th><th>Logic</th><th style="width:18%">Used when</th></tr>
+            <tr>
+              <td><strong>DCF &mdash; Gordon Growth Model (GGM)</strong></td>
+              <td>
+                3&ndash;5 year average FCF projected 10 years at a per-company growth rate
+                <em>g = ROE &times; Retention Ratio</em> (capped at WACC &minus; 1%, floored at 1%).
+                Terminal value via perpetuity: <em>TV = FCF&#x2099; &times; (1+g) / (WACC &minus; g)</em>.
+                Everything discounted at the per-company WACC.
+                Result divided by diluted shares outstanding.
+              </td>
+              <td>All non-financial sectors where FCF &gt; 0</td>
+            </tr>
+            <tr>
+              <td><strong>DCF &mdash; Exit Multiple</strong></td>
+              <td>
+                Average EBITDA projected 10 years at the same growth rate,
+                multiplied by a <strong>12&times; EV/EBITDA exit multiple</strong> at year 10,
+                net debt subtracted, result discounted at WACC, divided by shares.
+                Acts as a cross-check on GGM &mdash; if both agree, conviction is higher.
+              </td>
+              <td>All non-financial sectors where EBITDA &gt; 0</td>
+            </tr>
+            <tr>
+              <td><strong>DDM &mdash; Dividend Discount</strong></td>
+              <td>
+                Gordon growth formula: <em>P = D&#x2081; / (r &minus; g)</em>
+                where D&#x2081; = next-year dividend, r = WACC, g = sustainable dividend growth.
+                Used because FCF and EBITDA from cash flow statements are unreliable for
+                banks and insurers (capital tied up in regulatory reserves is not &ldquo;free&rdquo;).
+              </td>
+              <td>Financial Services &amp; Insurance sectors only</td>
+            </tr>
+            <tr>
+              <td><strong>Dynamic WACC</strong></td>
+              <td>
+                Per-company: <em>WACC = Ke &times; (E/V) + Kd &times; (1&minus;t) &times; (D/V)</em>.
+                Ke = risk-free rate (US 10Y ^TNX, live) + beta &times; 5.5% equity risk premium.
+                Kd = interest expense / total debt. Fallback to 10% if data is missing.
+              </td>
+              <td>All models above</td>
+            </tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Limitations:</strong>
+            DCF is inherently sensitive to the growth rate assumption &mdash; a 1pp change in g
+            can move intrinsic value by 15&ndash;30%.
+            FCF figures from yfinance use the reported statement; capitalised R&amp;D or leases may distort results.
+            The 12&times; exit multiple is fixed; cyclical sectors (Energy, Basic Materials)
+            may warrant a lower multiple at trough.
+          </p>
+        </div>
+      </details>
 
-      <!-- ── 4. Screener ── -->
-      <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        4 &nbsp;·&nbsp; Screener &mdash; ProfileFit &amp; Strict Filters
-      </div>
-      <div class="ib blue" style="margin-bottom:0">
-        Every company receives a <strong>ProfileFit Score (0&ndash;100)</strong> for each profile,
-        calculated as 70% proximity to all profile thresholds + 30% Composite Score.
-        <strong style="color:#16a34a">PASS</strong> = meets <em>all</em> criteria strictly.
-        <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but is still ranked.
-        <strong style="color:#dc2626">TRAP</strong> = Value Trap flag active (excessive leverage or
-        all FCF years negative).
-        No company is ever hidden from the report &mdash; all 503 are ranked per profile.
-      </div>
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 3. QUALITY SCORES                                                  -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#7c3aed18;color:#7c3aed">QS</span>
+          3 &nbsp;&mdash;&nbsp; Quality Scores &mdash; Piotroski, Altman Z, ROIC, Composite
+        </summary>
+        <div class="mdet-body">
+          <table>
+            <tr><th style="width:22%">Score</th><th>How it is calculated</th><th style="width:22%">Thresholds &amp; flags</th></tr>
+            <tr>
+              <td><strong>Piotroski F-Score</strong></td>
+              <td>
+                9 binary (0/1) accounting signals summed to a score 0&ndash;9. Four profitability signals
+                (positive ROA, positive operating cash flow, improving ROA YoY, CFO &gt; Net Income);
+                three leverage/liquidity signals (falling long-term debt ratio, improving current ratio,
+                no new share dilution); two efficiency signals (improving gross margin, improving asset
+                turnover). Signals F6 and F7 are computed where data allows; otherwise capped at 7.
+              </td>
+              <td>
+                <span class="thresh pass">&ge; 7 strong</span>
+                <span class="thresh neutral">4&ndash;6 stable</span>
+                <span class="thresh fail">&le; 3 weak</span>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Altman Z-Score</strong></td>
+              <td>
+                Z = 1.2&times;X&#x2081; + 1.4&times;X&#x2082; + 3.3&times;X&#x2083; + 0.6&times;X&#x2084; + 1.0&times;X&#x2085;
+                (Working Capital/TA, Retained Earnings/TA, EBIT/TA, Market Cap/Total Debt, Revenue/TA).
+                Threshold <strong>calibrated at 1.0</strong> instead of the textbook 1.81 to avoid
+                over-excluding media and telecom companies with large intangible asset bases whose
+                tangible asset ratios are structurally lower.
+              </td>
+              <td>
+                <span class="thresh pass">&ge; 3.0 safe</span>
+                <span class="thresh neutral">1.0&ndash;2.99 grey zone</span>
+                <span class="thresh fail">&lt; 1.0 distress</span>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>ROIC</strong></td>
+              <td>
+                ROIC = NOPAT / Invested Capital, where NOPAT = Operating Income &times; (1 &minus; tax rate)
+                and Invested Capital = Total Equity + Total Debt &minus; Cash &amp; Equivalents.
+                Measures how efficiently the business converts capital into profit regardless
+                of financing structure.
+              </td>
+              <td>
+                <span class="thresh pass">&ge; 15% moat</span>
+                <span class="thresh neutral">10&ndash;14% good</span>
+                <span class="thresh fail">&lt; 10% weak</span>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Composite Score (0&ndash;100)</strong></td>
+              <td>
+                Weighted blend of four normalised signals:<br>
+                &nbsp;&bull; <strong>Margin of Safety %</strong> &mdash; 40% weight<br>
+                &nbsp;&bull; <strong>Piotroski F-Score</strong> &mdash; 25% weight<br>
+                &nbsp;&bull; <strong>ROIC</strong> &mdash; 25% weight<br>
+                &nbsp;&bull; <strong>52-week Position</strong> (inverted: lower = better) &mdash; 10% weight<br>
+                Used internally for ranking and as the 30% quality component of ProfileFit.
+              </td>
+              <td>&mdash;</td>
+            </tr>
+          </table>
+        </div>
+      </details>
 
-      <!-- ── 5. Backtest ── -->
-      <div style="font-size:14px;font-weight:800;color:#1f2328;margin:24px 0 10px">
-        5 &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500
-      </div>
-      <div class="ib blue" style="margin-bottom:12px">
-        Annual simulation: the top-N Deep Value picks are bought on the first trading day of the year
-        and sold on the first trading day of the following year.
-        Benchmark: <strong>^GSPC (S&amp;P 500 Index)</strong>. Equal-weighted portfolio.
-        Metrics computed from the annual return series:
-        <strong>CAGR, Sharpe Ratio, Sortino Ratio, Max Drawdown, per-stock Win Rate</strong>.
-        Nearest-trading-day resolution handles holidays and weekends.
-      </div>
-      <div class="ib" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;margin-bottom:0">
-        <strong>Important limitations:</strong>
-        (1) <strong>Look-ahead bias</strong> &mdash; filters use current financials as screening criteria
-        for all historical years; real point-in-time data would differ.
-        (2) <strong>Survivorship bias</strong> &mdash; universe contains only current S&amp;P 500
-        constituents; companies removed since the start year are excluded.
-        (3) No transaction costs, slippage, or taxes modelled.
-        Treat results as <em>directional indicators</em> of strategy quality, not reliable predictions.
-      </div>
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4A. SCREEN: DEEP VALUE                                             -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#3b82d418;color:#3b82d4">DV</span>
+          4A &nbsp;&mdash;&nbsp; Screen: Deep Value &mdash; the tightest six-filter pass
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> Benjamin Graham&ndash;style deep discount. A company must pass
+            <em>all six criteria simultaneously</em> to receive a strict PASS.
+            No single strong metric compensates for a failure in another.
+            Designed to find statistically cheap stocks where the price alone offers a wide margin of safety.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>Threshold</th><th>Rationale</th></tr>
+            <tr><td><strong>P/E ratio</strong></td><td><span class="thresh pass">&le; 15&times;</span></td><td>Below long-run S&amp;P 500 average (&sim;22&times;). At &le;15&times; the market prices in meaningful pessimism about earnings.</td></tr>
+            <tr><td><strong>P/B ratio</strong></td><td><span class="thresh pass">&le; 1.5&times;</span></td><td>Near or below book value. Classic Graham criterion: paying &le;1.5&times; assets provides downside protection.</td></tr>
+            <tr><td><strong>EV/EBITDA</strong></td><td><span class="thresh pass">&le; 8&times;</span></td><td>An acquirer could recover the full enterprise value from operating profit in &le;8 years — historically cheap.</td></tr>
+            <tr><td><strong>P/FCF</strong></td><td><span class="thresh pass">&le; 15&times;</span></td><td>Free cash flow yield &ge;6.7%. Real cash generation, not accounting earnings.</td></tr>
+            <tr><td><strong>Net Debt / EBITDA</strong></td><td><span class="thresh pass">&le; 2.5&times;</span></td><td>Conservative leverage. Debt repayable from operating profit in &le;2.5 years.</td></tr>
+            <tr><td><strong>Margin of Safety</strong></td><td><span class="thresh pass">&ge; 20%</span></td><td>DCF intrinsic value at least 20% above current price.</td></tr>
+            <tr><td><strong>Piotroski F-Score</strong></td><td><span class="thresh pass">&ge; 4</span></td><td>Minimum accounting quality check. Prevents buying deteriorating businesses that happen to look statistically cheap.</td></tr>
+            <tr><td><strong>Altman Z &lt; 1.0 excluded</strong></td><td><span class="thresh fail">Auto-exclude</span></td><td>Companies in real financial distress are removed even if multiples look cheap.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Sorted by:</strong> Margin of Safety % (descending).
+            <strong>Typical pass rate:</strong> 1&ndash;5 companies from 503 tickers &mdash; the strictest screen in the system.
+            <strong>Known limitation:</strong> Very cheap multiples in cyclical sectors (Energy, Materials)
+            may reflect a trough in the cycle, not a permanent discount; combine with sector context.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4B. SCREEN: BUFFETT QUALITY                                        -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#7c3aed18;color:#7c3aed">BQ</span>
+          4B &nbsp;&mdash;&nbsp; Screen: Buffett Quality &mdash; wide-moat business at a fair price
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> &ldquo;It&rsquo;s far better to buy a wonderful company at a fair price
+            than a fair company at a wonderful price.&rdquo; Focuses on <em>quality first</em>:
+            strong return on invested capital, improving accounting fundamentals, low debt,
+            and a DCF-confirmed discount. Multiples are more relaxed than Deep Value
+            because the quality premium is justified.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>Threshold</th><th>Rationale</th></tr>
+            <tr><td><strong>P/E ratio</strong></td><td><span class="thresh neutral">&le; 25&times;</span></td><td>Allows paying a modest quality premium above the market average.</td></tr>
+            <tr><td><strong>P/B ratio</strong></td><td><span class="thresh neutral">&le; 4&times;</span></td><td>High-ROIC businesses trade above book; 4&times; still filters out the most expensive growth names.</td></tr>
+            <tr><td><strong>EV/EBITDA</strong></td><td><span class="thresh neutral">&le; 15&times;</span></td><td>Enterprise value check; still materially below the top quintile of the S&amp;P 500.</td></tr>
+            <tr><td><strong>P/FCF</strong></td><td><span class="thresh neutral">&le; 25&times;</span></td><td>FCF yield &ge;4%. Ensures real cash generation even for quality businesses.</td></tr>
+            <tr><td><strong>Net Debt / EBITDA</strong></td><td><span class="thresh pass">&le; 1.5&times;</span></td><td>Stricter than Deep Value &mdash; Buffett-style businesses should not need excessive leverage to generate returns.</td></tr>
+            <tr><td><strong>Margin of Safety</strong></td><td><span class="thresh pass">&ge; 15%</span></td><td>Slightly relaxed vs Deep Value; quality businesses rarely trade at a 20%+ discount.</td></tr>
+            <tr><td><strong>Piotroski F-Score</strong></td><td><span class="thresh pass">&ge; 5</span></td><td>Above-average accounting quality. Rising profitability and falling leverage.</td></tr>
+            <tr><td><strong>ROIC</strong></td><td><span class="thresh pass">&ge; 10%</span></td><td>Must exceed typical cost of capital &mdash; the defining criterion separating Buffett-style from pure value.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Sorted by:</strong> Margin of Safety % (descending).
+            <strong>Typical pass rate:</strong> 2&ndash;10 companies.
+            <strong>Known limitation:</strong> ROIC data from yfinance may be missing for recent IPOs or
+            companies undergoing restructuring; those are scored 0 on the ROIC criterion but not excluded.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4C. SCREEN: HIGH FCF YIELD                                         -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#05966918;color:#059669">FCF</span>
+          4C &nbsp;&mdash;&nbsp; Screen: High FCF Yield &mdash; maximum cash generation
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> Free cash flow is the most honest measure of a company&rsquo;s
+            earning power because it is harder to manipulate than net income (no non-cash charges,
+            no accruals). This screen finds companies where the cash yield on the market price is
+            exceptionally high &mdash; meaning the business is generating so much cash that even at
+            a conservative DCF valuation it still looks cheap. Multiples filters are intentionally
+            broad to avoid excluding asset-light or high-depreciation businesses that score well on FCF.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>Threshold</th><th>Rationale</th></tr>
+            <tr><td><strong>P/FCF</strong></td><td><span class="thresh pass">&le; 12&times;</span></td><td>The core criterion. FCF yield &ge;8.3% &mdash; an exceptional cash return at any interest rate environment.</td></tr>
+            <tr><td><strong>Margin of Safety</strong></td><td><span class="thresh pass">&ge; 10%</span></td><td>Minimum DCF confirmation that the cash yield is not just a one-year artefact.</td></tr>
+            <tr><td><strong>P/E ratio</strong></td><td><span class="thresh neutral">&le; 30&times;</span></td><td>Guardrail only &mdash; broad enough not to exclude high-depreciation or capital-intensive companies.</td></tr>
+            <tr><td><strong>EV/EBITDA</strong></td><td><span class="thresh neutral">&le; 20&times;</span></td><td>Broad ceiling to catch companies with unusual capital structures.</td></tr>
+            <tr><td><strong>Net Debt / EBITDA</strong></td><td><span class="thresh neutral">&le; 3.0&times;</span></td><td>Slightly more lenient than other screens because strong FCF can service higher debt levels.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Sorted by:</strong> Margin of Safety % (descending).
+            <strong>Typical pass rate:</strong> 8&ndash;20 companies.
+            <strong>Known limitation:</strong> A single year of elevated FCF (asset sale, working capital
+            release) can produce a deceptively low P/FCF. The engine uses a 3&ndash;5 year FCF average
+            in the DCF, but the P/FCF multiple is based on trailing twelve months reported FCF.
+            Always cross-check with the FCF trend over 3+ years.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4D. SCREEN: QUALITY VALUE                                          -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#d9770618;color:#d97706">QV</span>
+          4D &nbsp;&mdash;&nbsp; Screen: Quality Value &mdash; financially healthy at a discount
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> A balanced blend of quality and price discipline.
+            The screen requires a demonstrably healthy balance sheet (Altman Z &ge; 1.0),
+            above-average capital efficiency (ROIC &ge; 10%), improving fundamentals (Piotroski &ge; 5)
+            <em>and</em> a clear DCF discount. It avoids the &ldquo;too cheap for a reason&rdquo; problem
+            by requiring quality, and avoids overpaying by requiring a margin of safety.
+            Results are sorted by Composite Score (not just MoS) to surface the best risk-adjusted picks.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>Threshold</th><th>Rationale</th></tr>
+            <tr><td><strong>P/E ratio</strong></td><td><span class="thresh neutral">&le; 25&times;</span></td><td>Moderate multiple ceiling. Allows quality businesses that trade above deep-value levels.</td></tr>
+            <tr><td><strong>P/B ratio</strong></td><td><span class="thresh neutral">&le; 4&times;</span></td><td>Same as Buffett Quality &mdash; permits intangible-rich businesses.</td></tr>
+            <tr><td><strong>EV/EBITDA</strong></td><td><span class="thresh neutral">&le; 15&times;</span></td><td>Enterprise value discipline; below the top third of the S&amp;P 500 by this metric.</td></tr>
+            <tr><td><strong>P/FCF</strong></td><td><span class="thresh neutral">&le; 20&times;</span></td><td>FCF yield &ge;5%. Meaningful but not extreme cash yield required.</td></tr>
+            <tr><td><strong>Net Debt / EBITDA</strong></td><td><span class="thresh pass">&le; 2.5&times;</span></td><td>Moderate leverage ceiling to keep balance sheet risk manageable.</td></tr>
+            <tr><td><strong>Margin of Safety</strong></td><td><span class="thresh pass">&ge; 15%</span></td><td>DCF discount of at least 15% required to confirm valuation, not just quality.</td></tr>
+            <tr><td><strong>Piotroski F-Score</strong></td><td><span class="thresh pass">&ge; 5</span></td><td>Above-average accounting quality. Fundamentals improving, not deteriorating.</td></tr>
+            <tr><td><strong>ROIC</strong></td><td><span class="thresh pass">&ge; 10%</span></td><td>Capital efficiency above cost of capital. Confirms the business earns real returns.</td></tr>
+            <tr><td><strong>Altman Z &lt; 1.0 excluded</strong></td><td><span class="thresh fail">Auto-exclude</span></td><td>Financial distress guard. Unlike Deep Value, Quality Value explicitly removes distressed names even if all other criteria pass.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Sorted by:</strong> Composite Score (descending) &mdash; not raw MoS%.
+            This surfaces the best-balanced companies rather than just the most deeply discounted.
+            <strong>Typical pass rate:</strong> 2&ndash;8 companies.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 5. PROFILEFIT & RANKING                                            -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#0891b218;color:#0891b2">PF</span>
+          5 &nbsp;&mdash;&nbsp; ProfileFit Score &amp; Full-Universe Ranking
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            Rather than a binary pass/fail, every company receives a <strong>ProfileFit Score
+            (0&ndash;100)</strong> per profile. This allows ranking all 503 companies,
+            not just the handful that strictly pass. Companies that almost pass are visible and
+            comparable to those that do pass.
+          </p>
+          <table>
+            <tr><th style="width:28%">Component</th><th>Weight</th><th>How it is computed</th></tr>
+            <tr>
+              <td><strong>Criterion proximity score</strong></td>
+              <td>70%</td>
+              <td>
+                For each threshold in the profile, a score 0&ndash;1 is given:
+                1.0 = at or better than threshold; partial credit for being close
+                (e.g. if threshold is P/E &le;15 and actual P/E is 20, score = 15/20 = 0.75).
+                The average across all profile criteria gives the proximity score.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Composite Score</strong></td>
+              <td>30%</td>
+              <td>The 0&ndash;100 quality-adjusted ranking score described in section 3.</td>
+            </tr>
+          </table>
+          <p style="margin-top:12px;line-height:1.7">
+            <strong style="color:#16a34a">PASS</strong> = meets every criterion in the profile strictly.<br>
+            <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but still has a meaningful ProfileFit score.<br>
+            <strong style="color:#dc2626">TRAP</strong> = Value Trap flag active: Net Debt/EBITDA &gt; 3.5&times; <em>or</em> all FCF years are negative.<br>
+            <code>INSUFFICIENT_DATA</code> = fewer than 2 financial data points available; always placed last.
+          </p>
+          <p style="margin-top:10px;color:#6b7280;font-size:12px">
+            The <strong>Top Overall</strong> section at the top of the report aggregates ProfileFit scores
+            across all four profiles using a weighted average (Deep Value &times;1.3, Buffett Quality &times;1.2,
+            Quality Value &times;1.1, FCF Yield &times;1.0) to produce a single cross-profile ranking.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 6. BACKTEST                                                        -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#1f232818;color:#1f2328">BT</span>
+          6 &nbsp;&mdash;&nbsp; Walk-Forward Backtest vs S&amp;P 500
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            Annual simulation of the Deep Value screen applied to historical data.
+            Top-N picks bought on the <strong>first trading day of each year</strong>,
+            held for exactly one year, sold on the first trading day of the following year.
+            Portfolio is <strong>equal-weighted</strong>.
+            Benchmark is <strong>^GSPC (S&amp;P 500 total price return)</strong>.
+          </p>
+          <table>
+            <tr><th style="width:28%">Metric</th><th>How it is computed</th></tr>
+            <tr><td><strong>CAGR</strong></td><td>Compound Annual Growth Rate of a $1 investment over the full backtest period.</td></tr>
+            <tr><td><strong>Sharpe Ratio</strong></td><td>(Mean annual return &minus; risk-free rate) / standard deviation of annual returns. Risk-free rate = US 10Y yield at the time.</td></tr>
+            <tr><td><strong>Sortino Ratio</strong></td><td>Same as Sharpe but uses only downside deviation in the denominator. Penalises losses more than gains.</td></tr>
+            <tr><td><strong>Max Drawdown</strong></td><td>Largest peak-to-trough loss of the cumulative portfolio value across all years.</td></tr>
+            <tr><td><strong>Win Rate</strong></td><td>Percentage of individual stock picks that outperformed the S&amp;P 500 in their holding year.</td></tr>
+            <tr><td><strong>Excess Return</strong></td><td>Portfolio return minus S&amp;P 500 return for each year, and CAGR difference over the full period.</td></tr>
+          </table>
+          <div class="ib" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;margin-top:14px;margin-bottom:0">
+            <strong>Critical limitations &mdash; read before drawing conclusions:</strong>
+            <ul class="lim-list" style="margin-top:8px">
+              <li><strong>Look-ahead bias:</strong> screening criteria use <em>current</em> financial data for all historical years. A company that passes the screen today may not have passed in 2018 with its then-current financials. Results are optimistic.</li>
+              <li><strong>Survivorship bias:</strong> universe = current S&amp;P 500 constituents only. Companies that failed, were acquired, or were removed from the index since the start year are absent. This overstates historical returns.</li>
+              <li><strong>Single entry/exit date:</strong> one buy and one sell date per year, no dollar-cost averaging, no intra-year rebalancing.</li>
+              <li><strong>No costs:</strong> commissions, bid-ask spread, market impact, taxes, and short-selling costs are not modelled.</li>
+              <li><strong>Interpretation:</strong> treat as a directional indicator of whether the strategy has historically identified above-average companies &mdash; not as a reliable forecast of future returns.</li>
+            </ul>
+          </div>
+        </div>
+      </details>
 
     </div>"""
 
