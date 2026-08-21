@@ -125,59 +125,10 @@ _PROFILE_PLAIN = {
 }
 
 
-def _52w_svg(price_v: float | None, low_v: float | None, high_v: float | None) -> str:
-    """
-    Inline SVG 52-week range bar with accurate price marker.
-    Uses a pure HTML/CSS approach: percentage-positioned absolute div overlay
-    on a gradient track — no SVG coordinate scaling issues whatsoever.
-    """
-    if low_v is None or high_v is None or price_v is None:
-        return ""
-    span = high_v - low_v
-    if span <= 0:
-        return ""
-    pct   = min(max((price_v - low_v) / span, 0.0), 1.0)
-    pct_p = f"{pct * 100:.4f}%"   # CSS left% for the marker
-    mc    = "#16a34a" if pct < 0.33 else ("#eab308" if pct < 0.66 else "#e11d48")
-    label = (
-        f"near annual low ✓" if pct < 0.25 else
-        (f"near annual high ⚠" if pct > 0.75 else f"{pct*100:.0f}% of 52w range")
-    )
-
-    return f"""<div style="margin:0;padding-top:18px">
-  <!-- price label above marker — left% anchored to pct -->
-  <div style="position:relative;height:16px;margin-bottom:2px">
-    <div style="position:absolute;left:{pct_p};transform:translateX(-50%);
-                font-size:10px;font-weight:700;color:{mc};
-                font-family:monospace;white-space:nowrap">
-      ${price_v:,.2f}
-    </div>
-  </div>
-  <!-- gradient track + marker -->
-  <div style="position:relative;height:12px;border-radius:6px;
-              background:linear-gradient(to right,#16a34a55,#eab30855,#e11d4855)">
-    <!-- marker pin -->
-    <div style="position:absolute;left:{pct_p};top:50%;
-                transform:translate(-50%,-50%);
-                width:14px;height:14px;border-radius:50%;
-                background:{mc};border:2.5px solid #fff;
-                box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>
-  </div>
-  <!-- low / high labels -->
-  <div style="display:flex;justify-content:space-between;
-              font-size:10px;color:#8d96a0;font-family:monospace;margin-top:3px">
-    <span>${low_v:,.0f}</span>
-    <span style="font-size:10px;color:{mc};font-weight:700">{pct*100:.0f}% — {label}</span>
-    <span>${high_v:,.0f}</span>
-  </div>
-</div>"""
 
 
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
-    """
-    Four metric cards in a single row + totals row below.
-    Compact, no scroll, all values clearly visible.
-    """
+    """3 metric cards: MoS, Piotroski, ROIC + composite/overall score badges."""
     def _norm(v, lo, hi):
         if v is None: return 0.0
         return min(max((v - lo) / (hi - lo), 0.0), 1.0)
@@ -185,13 +136,11 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     mos_v  = _fv(row.get("MoS%", ""))
     pio_v  = _fv(row.get("Piotroski", ""))
     roic_v = _fv(row.get("ROIC%", ""))
-    pos_v  = _fv(row.get("52w Position%", ""))
     comp_v = _fv(row.get("Score", ""))
 
     mos_n  = _norm(mos_v,  0, 60)
     pio_n  = _norm(pio_v,  0, 9)
     roic_n = _norm(roic_v, 0, 30)
-    pos_n  = 1.0 - _norm(pos_v, 0, 100) if pos_v is not None else 0.0
 
     def _bar(n, colour):
         w = round(n * 80, 1)
@@ -221,10 +170,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
               pio_n, "#7c3aed", "25%", pio_n * 25) +
         _card("ROIC",
               f"{roic_v:.1f}%" if roic_v is not None else "—",
-              roic_n, "#059669", "25%", roic_n * 25) +
-        _card("52w Position",
-              f"{pos_v:.0f}%" if pos_v is not None else "—",
-              pos_n, "#d97706", "10%", pos_n * 10)
+              roic_n, "#059669", "25%", roic_n * 25)
     )
 
     # totals row
@@ -252,7 +198,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     <div style="margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                   letter-spacing:.06em;margin-bottom:8px">Score Breakdown
-        <span style="font-weight:400;color:#c0c4cb"> — MoS×40% + Piotroski×25% + ROIC×25% + 52wPos×10%</span>
+        <span style="font-weight:400;color:#c0c4cb"> — MoS×40% + Piotroski×25% + ROIC×25%</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">{cards}</div>
       <div style="margin-top:4px">{totals}</div>
@@ -464,30 +410,18 @@ def _why_buy(row: dict, profile_key: str | None = None,
         return ticker, "", None, None
 
     body       = '  '.join(sentences)
-    chart_html = _52w_svg(price_v, low_v, high_v)
     cards_html = _score_cards(row, overall_score)
 
     fit_v = _fv(row.get("ProfileFit", ""))
     sc_v  = overall_score if overall_score is not None else fit_v
     sc_c  = ("#16a34a" if (sc_v or 0) >= 75 else ("#eab308" if (sc_v or 0) >= 55 else "#9ca3af")) if sc_v else "#9ca3af"
 
-    preview = ' '.join(
-        body.replace('<strong>', '').replace('</strong>', '').split()[:10]
-    ) if body else "Analysis inside"
-
     panel_html = f"""
-        <!-- Row 1: score cards + 52w chart side by side -->
-        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
-          <div style="flex:2;min-width:280px">{cards_html}</div>
-          <div style="flex:1;min-width:200px">
-            <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
-                        letter-spacing:.06em;margin-bottom:8px">52-Week Range</div>
-            {chart_html if chart_html else '<span style="color:#9ca3af;font-size:12px">—</span>'}
-          </div>
-        </div>
+        <!-- Score cards -->
+        <div style="margin-bottom:14px">{cards_html}</div>
         <!-- Divider -->
         <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
-        <!-- Row 2: plain-English analysis -->
+        <!-- Plain-English analysis -->
         <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>"""
 
     return ticker, panel_html, sc_v, sc_c
