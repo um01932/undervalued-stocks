@@ -506,6 +506,36 @@ details.why { position:relative; }
 }
 details.why[open] .why-body { display:block; }
 
+/* ── Collapsible section wrappers ──────────────────────────────────────────── */
+details.sec-wrap { margin-bottom:20px; }
+details.sec-wrap > summary {
+  display:flex; align-items:center; gap:12px;
+  padding:0; cursor:pointer; list-style:none; user-select:none;
+}
+details.sec-wrap > summary::-webkit-details-marker { display:none; }
+/* The visible header bar */
+.sec-hdr {
+  flex:1; display:flex; align-items:center; gap:12px;
+  background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+  padding:14px 22px; transition:background .15s, box-shadow .15s;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+details.sec-wrap > summary:hover .sec-hdr { background:#f0f7ff; box-shadow:0 2px 8px rgba(59,130,212,.12); }
+details.sec-wrap[open] > summary .sec-hdr { background:#eff6ff; border-color:#bfdbfe; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.sec-arrow { display:inline-block; transition:transform .2s ease; color:#3b82d4; font-size:15px; flex-shrink:0; }
+details.sec-wrap[open] > summary .sec-arrow { transform:rotate(90deg); }
+.sec-badge { display:inline-flex; align-items:center; justify-content:center;
+             width:32px; height:32px; border-radius:8px;
+             font-size:11px; font-weight:800; flex-shrink:0; }
+.sec-title { font-size:15px; font-weight:800; color:#1f2328; }
+.sec-meta  { font-size:12px; color:#8d96a0; margin-left:auto; white-space:nowrap; }
+/* The content panel — flush with header */
+details.sec-wrap > .sec-body {
+  background:#fff; border:1px solid #bfdbfe; border-top:none;
+  border-radius:0 0 12px 12px; padding:28px 32px;
+}
+details.sec-wrap:not([open]) > .sec-body { display:none; }
+
 /* footer */
 .footer { text-align:center; font-size:11px; color:#8d96a0;
           border-top:1px solid #e5e7eb; padding-top:20px; margin-top:40px; }
@@ -718,7 +748,7 @@ def _compact_row(row: dict, rank: int) -> str:
 
 
 def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
-                             top_n: int = 5) -> str:
+                             top_n: int = 10) -> str:
     """Build a profile section: KPI pills + top-N detailed + rest compact."""
     meta = _PROFILE_META.get(profile_key, {
         "label": profile_key.replace("_", " ").title(),
@@ -801,30 +831,36 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
 
     return f"""
     <span class="section-anchor" id="{profile_key}"></span>
-    <div class="section">
-      <div class="profile-badge" style="background:{colour}11;border-color:{colour}44;color:{colour}">
-        {meta['icon']} &nbsp; {meta['label']}
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:{colour}18;color:{colour}">{meta['icon']}</span>
+          <span class="sec-title">{meta['label']} Screen</span>
+          <span class="sec-meta">{n_pass} PASS &nbsp;·&nbsp; {n} ranked &nbsp;·&nbsp; best fit {best_fit:.0f}/100 &nbsp;·&nbsp; {run_ts}</span>
+        </div>
+      </summary>
+      <div class="sec-body">
+        <div style="font-size:13px;color:#57606a;margin-bottom:16px">{meta['desc']}</div>
+        <div class="ib blue" style="margin-bottom:16px">
+          <strong>Fit Score explained:</strong> 0–100, calculated as
+          70% proximity to all profile thresholds + 30% composite quality score.
+          <strong style="color:#16a34a">PASS</strong> = meets ALL strict criteria.
+          <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but still ranked.
+          <strong style="color:#dc2626">TRAP</strong> = value trap flag (high debt / negative FCF).
+          No company is hidden — all {n} ranked companies visible below.
+        </div>
+        {pills}
+        <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1f2328">
+          Top {min(top_n, n)} — Detailed View
+        </div>
+        <table class="stbl">
+          {_table_header(show_fit=True)}
+          <tbody>{top_html}</tbody>
+        </table>
+        {rest_html}
       </div>
-      <div class="section-title">{meta['label']} Screen</div>
-      <div class="section-sub">{meta['desc']}</div>
-      <div class="ib blue" style="margin-bottom:16px">
-        <strong>Fit Score explained:</strong> 0–100, calculated as
-        70% proximity to all profile thresholds + 30% composite quality score.
-        <strong style="color:#16a34a">PASS</strong> = meets ALL strict criteria.
-        <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but still ranked.
-        <strong style="color:#dc2626">TRAP</strong> = value trap flag (high debt / negative FCF).
-        No company is hidden — all {n} ranked companies visible below.
-      </div>
-      {pills}
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1f2328">
-        Top {min(top_n, n)} — Detailed View
-      </div>
-      <table class="stbl">
-        {_table_header(show_fit=True)}
-        <tbody>{top_html}</tbody>
-      </table>
-      {rest_html}
-    </div>"""
+    </details>"""
 
 
 # ── Backtest section ──────────────────────────────────────────────────────────
@@ -1199,62 +1235,68 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
     top_ticker = ranked[0][0] if ranked else "—"
     top_n      = len(ranked[0][1]) if ranked else 0
 
+    n_gold = len([t for t,ps in ranked if len(ps)==4])
+    n_high = len([t for t,ps in ranked if len(ps)==3])
+
     return f"""
     <span class="section-anchor" id="convictions"></span>
-    <div class="section" style="border-left:4px solid #d97706">
-      <div class="profile-badge" style="background:#d9770611;border-color:#d9770644;color:#d97706">
-        &#9733; &nbsp; Top Convictions
-      </div>
-      <div class="section-title">Top Convictions — Multi-Profile Overlap</div>
-      <div class="section-sub">
-        Companies that passed <strong>2 or more screener profiles simultaneously</strong>.
-        The more profiles a company passes, the stronger the quantitative signal —
-        each profile uses a different set of thresholds and a different investment philosophy,
-        so overlap is a robust, multi-dimensional buy signal.
-      </div>
-
-      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
-                  padding:14px 18px;margin-bottom:18px;font-size:13px;color:#92400e">
-        <strong>How to read this table:</strong>
-        <strong style="color:#d97706">GOLD (4/4)</strong> = strongest possible signal — passes every single screen.
-        <strong style="color:#16a34a">HIGH (3/4)</strong> = passes 3 different philosophical filters.
-        <strong style="color:#3b82d4">MODERATE (2/4)</strong> = confirmed by 2 independent approaches.
-        Sorted by conviction level, then by Margin of Safety.
-      </div>
-
-      <div class="stats-bar">
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#d97706">{n_conv}</div>
-          <div class="sp-label">Multi-Profile Companies</div>
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr" style="border-left:4px solid #d97706">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:#d9770618;color:#d97706">&#9733;</span>
+          <span class="sec-title">Top Convictions &mdash; Multi-Profile Overlap</span>
+          <span class="sec-meta">{n_conv} companies &nbsp;·&nbsp; {n_gold} Gold &nbsp;·&nbsp; {n_high} High &nbsp;·&nbsp; strongest: {top_ticker} ({top_n} profiles)</span>
         </div>
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#d97706">{len([t for t,ps in ranked if len(ps)==3])}</div>
-          <div class="sp-label">High Conviction (3+)</div>
+      </summary>
+      <div class="sec-body">
+        <p style="font-size:13px;color:#57606a;margin-bottom:14px">
+          Companies that passed <strong>2 or more screener profiles simultaneously</strong>.
+          The more profiles a company passes, the stronger the quantitative signal.
+        </p>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
+                    padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400e">
+          <strong style="color:#d97706">GOLD (4/4)</strong> = passes every screen.
+          <strong style="color:#16a34a">HIGH (3/4)</strong> = 3 independent philosophies agree.
+          <strong style="color:#3b82d4">MODERATE (2/4)</strong> = 2 independent approaches confirm.
         </div>
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#d97706">{top_ticker}</div>
-          <div class="sp-label">Strongest Signal ({top_n} profiles)</div>
+        <div class="stats-bar">
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#d97706">{n_conv}</div>
+            <div class="sp-label">Multi-Profile</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#d97706">{n_gold}</div>
+            <div class="sp-label">Gold (4/4)</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#16a34a">{n_high}</div>
+            <div class="sp-label">High (3/4)</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#d97706">{top_ticker}</div>
+            <div class="sp-label">Strongest ({top_n} profiles)</div>
+          </div>
         </div>
+        <table class="stbl">
+          <thead><tr>
+            <th style="width:11%">Conviction</th>
+            <th style="width:13%">Ticker / Company</th>
+            <th style="width:9%">Sector</th>
+            <th class="r" style="width:6%">Price</th>
+            <th class="r" style="width:7%">Intrinsic Val.</th>
+            <th style="width:9%">Margin of Safety</th>
+            <th style="width:8%">52w Position</th>
+            <th class="r" style="width:5%">P/E</th>
+            <th class="r" style="width:5%">P/FCF</th>
+            <th style="width:6%;text-align:center">Piotroski</th>
+            <th class="r" style="width:6%">ROIC</th>
+            <th style="width:15%">Profiles</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
       </div>
-
-      <table class="stbl">
-        <thead><tr>
-          <th style="width:11%">Conviction</th>
-          <th style="width:13%">Ticker / Company</th>
-          <th style="width:9%">Sector</th>
-          <th class="r" style="width:6%">Price</th>
-          <th class="r" style="width:7%">Intrinsic Val.</th>
-          <th style="width:9%">Margin of Safety</th>
-          <th style="width:8%">52w Position</th>
-          <th class="r" style="width:5%">P/E</th>
-          <th class="r" style="width:5%">P/FCF</th>
-          <th style="width:6%;text-align:center">Piotroski</th>
-          <th class="r" style="width:6%">ROIC</th>
-          <th style="width:15%">Profiles</th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-      </table>
-    </div>"""
+    </details>"""
 
 
 # ── Overall Top section (cross-profile ranking) ───────────────────────────────
@@ -1399,67 +1441,61 @@ def _build_overall_top(
 
     return f"""
     <span class="section-anchor" id="overall_top"></span>
-    <div class="section" style="border-left:4px solid #3b82d4">
-      <div class="profile-badge" style="background:#3b82d411;border-color:#3b82d444;color:#3b82d4">
-        &#9650;&nbsp; Top Overall
-      </div>
-      <div class="section-title">Top Overall &mdash; Cross-Profile Ranking</div>
-      <div class="section-sub">
-        Weighted average of ProfileFit scores across all 4 screener profiles.
-        Deep Value carries the highest weight (1.3&times;) as the strictest screen.
-        Every company in the S&amp;P 500 universe is scored and ranked regardless
-        of whether it strictly passes any single profile.
-      </div>
-
-      <div class="ib blue" style="margin-bottom:18px">
-        <strong>Overall Score (0&ndash;100)</strong> =
-        weighted average of
-        (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0)
-        normalised by the profiles the company appears in.
-        &nbsp;Profile badges:
-        <strong>filled colour</strong> = strict PASS &nbsp;|&nbsp;
-        <strong style="color:#94a3b8">grey</strong> = ranked but did not strictly pass.
-      </div>
-
-      <div class="stats-bar">
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#3b82d4">{n_universe}</div>
-          <div class="sp-label">Companies Ranked</div>
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr" style="border-left:4px solid #3b82d4">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:#3b82d418;color:#3b82d4">&#9650;</span>
+          <span class="sec-title">Top Overall &mdash; Cross-Profile Ranking</span>
+          <span class="sec-meta">{n_universe} ranked &nbsp;·&nbsp; {n_strict} any PASS &nbsp;·&nbsp; best score {best_score:.0f}/100 &nbsp;·&nbsp; top {top_n} shown</span>
         </div>
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#16a34a">{n_strict}</div>
-          <div class="sp-label">Any Strict Pass</div>
+      </summary>
+      <div class="sec-body">
+        <div class="ib blue" style="margin-bottom:18px">
+          <strong>Overall Score (0&ndash;100)</strong> =
+          weighted average (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0).
+          <strong>filled badge</strong> = strict PASS &nbsp;|&nbsp;
+          <strong style="color:#94a3b8">grey badge</strong> = ranked but did not strictly pass.
         </div>
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#3b82d4">{best_score:.0f}/100</div>
-          <div class="sp-label">Best Overall Score</div>
+        <div class="stats-bar">
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#3b82d4">{n_universe}</div>
+            <div class="sp-label">Companies Ranked</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#16a34a">{n_strict}</div>
+            <div class="sp-label">Any Strict Pass</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#3b82d4">{best_score:.0f}/100</div>
+            <div class="sp-label">Best Overall Score</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:#3b82d4">Top {top_n}</div>
+            <div class="sp-label">Shown Here</div>
+          </div>
         </div>
-        <div class="stat-pill">
-          <div class="sp-value" style="color:#3b82d4">Top {top_n}</div>
-          <div class="sp-label">Shown Here</div>
-        </div>
+        <table class="stbl">
+          <thead><tr>
+            <th style="width:4%;text-align:center">#</th>
+            <th style="width:13%">Ticker / Company</th>
+            <th style="width:9%">Sector</th>
+            <th class="r" style="width:7%">Overall Score</th>
+            <th style="width:10%">Profiles</th>
+            <th class="r" style="width:6%">Price</th>
+            <th class="r" style="width:7%">Intrinsic Val.</th>
+            <th style="width:9%">Margin of Safety</th>
+            <th style="width:8%">52w Position</th>
+            <th class="r" style="width:5%">P/E</th>
+            <th class="r" style="width:5%">P/FCF</th>
+            <th style="width:5%;text-align:center">Piotroski</th>
+            <th class="r" style="width:5%">ROIC</th>
+            <th class="r" style="width:5%">Grade</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
       </div>
-
-      <table class="stbl">
-        <thead><tr>
-          <th style="width:4%;text-align:center">#</th>
-          <th style="width:13%">Ticker / Company</th>
-          <th style="width:9%">Sector</th>
-          <th class="r" style="width:7%">Overall Score</th>
-          <th style="width:10%">Profiles</th>
-          <th class="r" style="width:6%">Price</th>
-          <th class="r" style="width:7%">Intrinsic Val.</th>
-          <th style="width:9%">Margin of Safety</th>
-          <th style="width:8%">52w Position</th>
-          <th class="r" style="width:5%">P/E</th>
-          <th class="r" style="width:5%">P/FCF</th>
-          <th style="width:5%;text-align:center">Piotroski</th>
-          <th class="r" style="width:5%">ROIC</th>
-          <th class="r" style="width:5%">Grade</th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-      </table>
-    </div>"""
+    </details>"""
 
 
 # ── Full report builder ───────────────────────────────────────────────────────
@@ -1545,30 +1581,65 @@ def build_full_report(out_path: Path) -> None:
 
         dow_section = f"""
         <span class="section-anchor" id="dow30"></span>
-        <div class="section">
-          <div class="profile-badge" style="background:#0891b211;border-color:#0891b244;color:#0891b2">
-            D30 &nbsp; Dow Jones 30
+        <details class="sec-wrap">
+          <summary>
+            <div class="sec-hdr">
+              <span class="sec-arrow">&#9654;</span>
+              <span class="sec-badge" style="background:#0891b218;color:#0891b2">D30</span>
+              <span class="sec-title">Dow Jones 30 &mdash; 52-Week Ranking</span>
+              <span class="sec-meta">{len(dow_rows)} companies &nbsp;·&nbsp; ranked by 52w position &nbsp;·&nbsp; {dow_ts}</span>
+            </div>
+          </summary>
+          <div class="sec-body">
+            <div style="font-size:13px;color:#57606a;margin-bottom:16px">
+              All 30 blue-chip companies ranked by proximity to 52-week low.
+              <strong style="color:#16a34a">Green</strong> = near annual low (best opportunity).
+              <strong style="color:#e11d48">Red</strong> = near annual high.
+            </div>
+            <table class="stbl" style="table-layout:fixed">
+              <thead><tr>
+                <th style="width:5%">#</th>
+                <th style="width:8%">Ticker</th>
+                <th style="width:22%">Company</th>
+                <th style="width:16%">Sector</th>
+                <th class="r" style="width:8%">Price</th>
+                <th style="width:16%">52w Position</th>
+                <th class="r" style="width:7%">P/E</th>
+                <th class="r" style="width:7%">P/B</th>
+                <th class="r" style="width:11%">MoS%</th>
+              </tr></thead>
+              <tbody>{trows}</tbody>
+            </table>
           </div>
-          <div class="section-title">Dow Jones 30 — 52-Week Ranking</div>
-          <div class="section-sub">All 30 blue-chip companies ranked by proximity to 52-week low.
-            Green = near annual low (best opportunity). Red = near annual high. Data run: {dow_ts}.</div>
-          <table class="stbl" style="table-layout:fixed">
-            <thead><tr>
-              <th style="width:5%">#</th>
-              <th style="width:8%">Ticker</th>
-              <th style="width:22%">Company</th>
-              <th style="width:16%">Sector</th>
-              <th class="r" style="width:8%">Price</th>
-              <th style="width:16%">52w Position</th>
-              <th class="r" style="width:7%">P/E</th>
-              <th class="r" style="width:7%">P/B</th>
-              <th class="r" style="width:11%">MoS%</th>
-            </tr></thead>
-            <tbody>{trows}</tbody>
-          </table>
-        </div>"""
+        </details>"""
 
-    bt_section = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
+    bt_section_inner = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
+    if bt_rows:
+        cagr_val = ""
+        try:
+            sr = next((r for r in bt_rows if r.get("Year","").upper()=="SUMMARY"), {})
+            cp = _fv(sr.get("Portfolio%",""))
+            cb = _fv(sr.get("Benchmark%",""))
+            if cp is not None and cb is not None:
+                sign = "+" if cp-cb >= 0 else ""
+                cagr_val = f"{'+' if cp>=0 else ''}{cp:.1f}% portfolio &nbsp;·&nbsp; {sign}{cp-cb:.1f}% vs S&P 500"
+        except Exception:
+            pass
+        bt_section = f"""
+        <span class="section-anchor" id="backtest"></span>
+        <details class="sec-wrap">
+          <summary>
+            <div class="sec-hdr">
+              <span class="sec-arrow">&#9654;</span>
+              <span class="sec-badge" style="background:#1f232818;color:#1f2328">BT</span>
+              <span class="sec-title">Backtest vs S&amp;P 500 &mdash; Walk-Forward Simulation</span>
+              <span class="sec-meta">{cagr_val} &nbsp;·&nbsp; {bt_ts}</span>
+            </div>
+          </summary>
+          <div class="sec-body">{bt_section_inner}</div>
+        </details>"""
+    else:
+        bt_section = ""
 
     # ── Overall Top (cross-profile) ───────────────────────────────────────────
     overall_top_section = _build_overall_top(all_profile_rows, top_n=10)
@@ -1590,11 +1661,18 @@ def build_full_report(out_path: Path) -> None:
     # ── Methodology ───────────────────────────────────────────────────────────
     methodology = """
     <span class="section-anchor" id="methodology"></span>
-    <div class="section">
-      <div class="section-title">How the Engine Works</div>
-      <div class="section-sub">
-        Every section below is collapsible. Click any heading to expand it.
-        All descriptions reflect what is actually running in the code &mdash; no planned features included.
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:#57606a18;color:#57606a">&#9881;</span>
+          <span class="sec-title">How the Engine Works &mdash; Methodology</span>
+          <span class="sec-meta">6 sections &nbsp;·&nbsp; data pipeline, valuation models, 4 screens, backtest</span>
+        </div>
+      </summary>
+      <div class="sec-body">
+      <div style="font-size:13px;color:#57606a;margin-bottom:16px">
+        Every sub-section below is also collapsible. All descriptions reflect what is actually running in the code &mdash; no planned features included.
       </div>
 
       <!-- helper styles scoped to this section -->
@@ -2038,7 +2116,9 @@ def build_full_report(out_path: Path) -> None:
         </div>
       </details>
 
-    </div>"""
+    </div>
+    </div>
+    </details>"""
 
     # ── Assemble full HTML ─────────────────────────────────────────────────────
     html = f"""<!DOCTYPE html>
