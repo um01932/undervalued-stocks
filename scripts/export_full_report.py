@@ -125,10 +125,175 @@ _PROFILE_PLAIN = {
 }
 
 
-def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | None = None) -> str:
+def _score_bar(value: float, max_val: float, colour: str, width_px: int = 120) -> str:
+    """Render a small horizontal progress bar (inline SVG)."""
+    pct = min(max(value / max_val, 0.0), 1.0) if max_val else 0.0
+    fill_w = round(pct * width_px, 1)
+    return (
+        f'<svg width="{width_px}" height="8" style="vertical-align:middle;border-radius:4px;overflow:hidden">'
+        f'<rect width="{width_px}" height="8" fill="#e5e7eb"/>'
+        f'<rect width="{fill_w}" height="8" fill="{colour}" rx="4"/>'
+        f'</svg>'
+    )
+
+
+def _52w_chart(price_v: float, low_v: float, high_v: float) -> str:
+    """
+    Render an inline SVG sparkline showing the 52-week range with current price marked.
+    Shows: low label, gradient bar, current price marker, high label.
+    """
+    if low_v is None or high_v is None or price_v is None:
+        return ""
+    span = high_v - low_v
+    if span <= 0:
+        return ""
+    pct  = min(max((price_v - low_v) / span, 0.0), 1.0)
+    W, H = 420, 36
+    bar_y, bar_h = 14, 10
+    marker_x = round(pct * W, 1)
+    # colour gradient: green at left (cheap) → red at right (expensive)
+    if pct < 0.33:
+        mc = "#16a34a"
+    elif pct < 0.66:
+        mc = "#eab308"
+    else:
+        mc = "#e11d48"
+    return f"""
+    <div style="margin:12px 0 4px">
+      <div style="font-size:11px;font-weight:700;color:#57606a;margin-bottom:4px;
+                  text-transform:uppercase;letter-spacing:.05em">52-Week Price Range</div>
+      <svg width="{W}" height="{H}" style="display:block;max-width:100%">
+        <defs>
+          <linearGradient id="rng" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%"   stop-color="#16a34a" stop-opacity=".25"/>
+            <stop offset="50%"  stop-color="#eab308" stop-opacity=".25"/>
+            <stop offset="100%" stop-color="#e11d48" stop-opacity=".25"/>
+          </linearGradient>
+        </defs>
+        <!-- background track -->
+        <rect x="0" y="{bar_y}" width="{W}" height="{bar_h}"
+              fill="url(#rng)" rx="5"/>
+        <!-- current price marker line -->
+        <line x1="{marker_x}" y1="{bar_y - 4}" x2="{marker_x}" y2="{bar_y + bar_h + 4}"
+              stroke="{mc}" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- marker circle -->
+        <circle cx="{marker_x}" cy="{bar_y + bar_h//2}" r="5"
+                fill="{mc}" stroke="#fff" stroke-width="1.5"/>
+        <!-- low label -->
+        <text x="2" y="{H - 2}" font-size="10" fill="#57606a" font-family="monospace">${low_v:,.2f}</text>
+        <!-- high label (right-aligned approx) -->
+        <text x="{W - 2}" y="{H - 2}" font-size="10" fill="#57606a"
+              font-family="monospace" text-anchor="end">${high_v:,.2f}</text>
+        <!-- current price label above marker -->
+        <text x="{min(max(marker_x, 28), W - 28)}" y="{bar_y - 6}"
+              font-size="10" fill="{mc}" font-weight="bold"
+              font-family="monospace" text-anchor="middle">${price_v:,.2f}</text>
+      </svg>
+      <div style="font-size:11px;color:{mc};font-weight:700;margin-top:2px">
+        Currently at <strong>{pct*100:.0f}%</strong> of 52-week range
+        {'— near annual low ✓' if pct < 0.25 else ('— near annual high ⚠' if pct > 0.75 else '')}
+      </div>
+    </div>"""
+
+
+def _score_breakdown(row: dict, overall_score: float | None = None) -> str:
+    """
+    Render a compact visual breakdown of how the Overall / Composite score was derived.
+    Shows each component as a labelled bar with its value.
+    """
+    mos_v  = _fv(row.get("MoS%", ""))
+    pio_v  = _fv(row.get("Piotroski", ""))
+    roic_v = _fv(row.get("ROIC%", ""))
+    pos_v  = _fv(row.get("52w Position%", ""))
+    fit_v  = _fv(row.get("ProfileFit", ""))
+    comp_v = _fv(row.get("Score", ""))   # Composite Score 0-100
+
+    # Composite Score components (mirrors engine.py logic)
+    # MoS 40%, Piotroski 25%, ROIC 25%, 52wPos(inv) 10%
+    def _norm(v, lo, hi):
+        if v is None: return None
+        return min(max((v - lo) / (hi - lo), 0.0), 1.0)
+
+    mos_norm  = _norm(mos_v,  0, 60)   # 0%=0, 60%=100
+    pio_norm  = _norm(pio_v,  0, 9)    # 0-9
+    roic_norm = _norm(roic_v, 0, 30)   # 0-30%
+    pos_norm  = 1.0 - _norm(pos_v, 0, 100) if pos_v is not None else None  # inverted
+
+    rows_html = ""
+    items = [
+        ("Margin of Safety", mos_v, f"{mos_v:.1f}%" if mos_v is not None else "—",
+         mos_norm, "#3b82d4", "40%"),
+        ("Piotroski F-Score", pio_v, f"{pio_v:.0f}/9" if pio_v is not None else "—",
+         pio_norm, "#7c3aed", "25%"),
+        ("ROIC", roic_v, f"{roic_v:.1f}%" if roic_v is not None else "—",
+         roic_norm, "#059669", "25%"),
+        ("52w Position (inv.)", pos_v,
+         f"{100 - pos_v:.0f}% below high" if pos_v is not None else "—",
+         pos_norm, "#d97706", "10%"),
+    ]
+    for label, raw, display, norm, colour, weight in items:
+        bar = _score_bar(norm if norm is not None else 0.0, 1.0, colour, 100)
+        contrib = f"{(norm or 0) * float(weight.strip('%')) :.1f}" if norm is not None else "—"
+        rows_html += f"""
+        <tr>
+          <td style="padding:5px 8px;font-size:12px;color:#374151;white-space:nowrap">{label}</td>
+          <td style="padding:5px 8px;font-size:12px;font-weight:700;text-align:right;
+                     white-space:nowrap;color:{colour}">{display}</td>
+          <td style="padding:5px 8px">{bar}</td>
+          <td style="padding:5px 8px;font-size:11px;color:#8d96a0;white-space:nowrap">
+            weight {weight}</td>
+          <td style="padding:5px 8px;font-size:12px;font-weight:700;
+                     text-align:right;color:#374151">{contrib} pts</td>
+        </tr>"""
+
+    overall_row = ""
+    if overall_score is not None:
+        oc = "#16a34a" if overall_score >= 75 else ("#eab308" if overall_score >= 55 else "#e11d48")
+        overall_row = f"""
+        <tr style="border-top:2px solid #e5e7eb">
+          <td colspan="4" style="padding:6px 8px;font-size:12px;font-weight:700;color:#374151">
+            Overall Cross-Profile Score</td>
+          <td style="padding:6px 8px;font-size:16px;font-weight:900;
+                     text-align:right;color:{oc}">{overall_score:.0f}<span style="font-size:11px;color:#8d96a0">/100</span></td>
+        </tr>"""
+
+    comp_row = ""
+    if comp_v is not None:
+        cc = "#16a34a" if comp_v >= 70 else ("#eab308" if comp_v >= 45 else "#e11d48")
+        comp_row = f"""
+        <tr style="border-top:2px solid #e5e7eb">
+          <td colspan="4" style="padding:6px 8px;font-size:12px;font-weight:700;color:#374151">
+            Composite Score (MoS×40 + Pio×25 + ROIC×25 + 52w×10)</td>
+          <td style="padding:6px 8px;font-size:16px;font-weight:900;
+                     text-align:right;color:{cc}">{comp_v:.0f}<span style="font-size:11px;color:#8d96a0">/100</span></td>
+        </tr>"""
+
+    if not rows_html:
+        return ""
+
+    return f"""
+    <div style="margin-top:14px;background:#f9fafb;border:1px solid #e5e7eb;
+                border-radius:8px;overflow:hidden">
+      <div style="font-size:11px;font-weight:700;color:#57606a;text-transform:uppercase;
+                  letter-spacing:.06em;padding:8px 12px;background:#f0f2f5;
+                  border-bottom:1px solid #e5e7eb">
+        Score Breakdown
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        {rows_html}
+        {comp_row}
+        {overall_row}
+      </table>
+    </div>"""
+
+
+def _why_buy(row: dict, profile_key: str | None = None,
+             profiles: list[str] | None = None,
+             overall_score: float | None = None) -> str:
     """
     Generate a plain-English 'Why buy X?' paragraph with real numbers injected.
     Works for both single-profile rows and multi-profile conviction rows.
+    Optionally includes score breakdown and 52-week range chart.
     """
     ticker  = row.get("Ticker", "").strip()
     company = row.get("Company", "").strip() or ticker
@@ -322,18 +487,48 @@ def _why_buy(row: dict, profile_key: str | None = None, profiles: list[str] | No
             f"and passed {profile_plain}."
         )
 
-    if not sentences:
+    if not sentences and overall_score is None and low_v is None:
         return ""
 
-    body = '  '.join(sentences)
+    body        = '  '.join(sentences)
+    chart_html  = _52w_chart(price_v, low_v, high_v)
+    breakdown   = _score_breakdown(row, overall_score)
+
+    # preview: first 12 words of the analysis shown in collapsed summary
+    preview_words = ' '.join(body.replace('<strong>', '').replace('</strong>', '')
+                              .split()[:12]) if body else ""
+    preview_txt   = (preview_words + '…') if preview_words else "Tap to see full analysis"
+
+    fit_v  = _fv(row.get("ProfileFit", ""))
+    ov_str = ""
+    if overall_score is not None:
+        oc  = "#16a34a" if overall_score >= 75 else ("#eab308" if overall_score >= 55 else "#e11d48")
+        ov_str = f' &nbsp;<span style="font-size:11px;font-weight:900;color:{oc}">{overall_score:.0f}/100</span>'
+    elif fit_v is not None:
+        fc  = "#16a34a" if fit_v >= 70 else ("#eab308" if fit_v >= 40 else "#9ca3af")
+        ov_str = f' &nbsp;<span style="font-size:11px;font-weight:900;color:{fc}">{fit_v:.0f}/100</span>'
+
     return f"""
     <details class="why">
       <summary>
         <span class="why-arrow">&#9654;</span>
-        Why buy {ticker}?
+        Why buy {ticker}?{ov_str}
+        <span style="font-size:11px;color:#9ca3af;font-weight:400;
+                     margin-left:8px;overflow:hidden;white-space:nowrap;
+                     text-overflow:ellipsis;max-width:320px">{preview_txt}</span>
       </summary>
       <div class="why-body">
-        <div style="font-size:13px;line-height:1.75;color:#374151">{body}</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+          <!-- left: text analysis -->
+          <div style="flex:1;min-width:260px">
+            <div style="font-size:13px;line-height:1.75;color:#374151">{body}</div>
+            {chart_html}
+          </div>
+          <!-- right: score breakdown -->
+          <div style="flex:0 0 320px;min-width:260px">
+            {breakdown}
+          </div>
+        </div>
       </div>
     </details>"""
 
@@ -1407,7 +1602,8 @@ def _build_overall_top(
                     f'border:1px solid {bg}44;margin:1px">{info[0]}</span>'
                 )
 
-        why = _why_buy(row, profiles=passes_in if passes_in else None)
+        why = _why_buy(row, profiles=passes_in if passes_in else None,
+                       overall_score=score)
         rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
 
         rows_html += f"""<tr>
