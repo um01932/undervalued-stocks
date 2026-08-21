@@ -447,37 +447,25 @@ def _why_buy(row: dict, profile_key: str | None = None,
         )
 
     if not sentences and overall_score is None and low_v is None:
-        return ""
+        return ticker, "", None, None
 
     body       = '  '.join(sentences)
     chart_html = _52w_svg(price_v, low_v, high_v)
     cards_html = _score_cards(row, overall_score)
 
-    # summary line: score badge + short preview
     fit_v = _fv(row.get("ProfileFit", ""))
     sc_v  = overall_score if overall_score is not None else fit_v
     sc_c  = ("#16a34a" if (sc_v or 0) >= 75 else ("#eab308" if (sc_v or 0) >= 55 else "#9ca3af")) if sc_v else "#9ca3af"
-    sc_badge = (f'<span style="font-size:11px;font-weight:900;color:{sc_c};'
-                f'background:{sc_c}18;border-radius:4px;padding:1px 6px;margin-left:6px">'
-                f'{sc_v:.0f}/100</span>') if sc_v is not None else ""
 
     preview = ' '.join(
         body.replace('<strong>', '').replace('</strong>', '').split()[:10]
     ) if body else "Analysis inside"
-    preview_span = (f'<span style="font-size:11px;color:#9ca3af;font-weight:400;'
-                    f'margin-left:8px">{preview}…</span>')
 
-    return f"""
-    <details class="why">
-      <summary>
-        <span class="why-arrow">&#9654;</span>
-        Why buy {ticker}?{sc_badge}{preview_span}
-      </summary>
-      <div class="why-body">
+    panel_html = f"""
         <!-- Row 1: score cards + 52w chart side by side -->
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
-          <div style="flex:2;min-width:300px">{cards_html}</div>
-          <div style="flex:1;min-width:220px">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
+          <div style="flex:2;min-width:280px">{cards_html}</div>
+          <div style="flex:1;min-width:200px">
             <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                         letter-spacing:.06em;margin-bottom:8px">52-Week Range</div>
             {chart_html if chart_html else '<span style="color:#9ca3af;font-size:12px">—</span>'}
@@ -486,9 +474,37 @@ def _why_buy(row: dict, profile_key: str | None = None,
         <!-- Divider -->
         <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
         <!-- Row 2: plain-English analysis -->
-        <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>
-      </div>
-    </details>"""
+        <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>"""
+
+    return ticker, panel_html, sc_v, sc_c
+
+
+def _why_btn(ticker: str, sc_v: float | None, sc_c: str) -> str:
+    """Toggle button rendered inside the data row <td>. Calls toggleWhy(id)."""
+    why_id = f"why-{ticker.replace('.', '-')}"
+    sc_badge = (
+        f'<span style="font-size:10px;font-weight:900;color:{sc_c};'
+        f'background:{sc_c}18;border-radius:3px;padding:1px 5px;margin-left:4px">'
+        f'{sc_v:.0f}</span>'
+    ) if sc_v is not None else ""
+    return (
+        f'<button class="why-btn" onclick="toggleWhy(\'{why_id}\')" '
+        f'id="btn-{why_id}">'
+        f'<span class="why-arrow" id="arr-{why_id}">&#9654;</span>'
+        f'&nbsp;Why buy?{sc_badge}'
+        f'</button>'
+    )
+
+
+def _why_tr(panel_html: str, col_count: int, ticker: str) -> str:
+    """A hidden <tr> that expands inline below the data row — full table width."""
+    why_id = f"why-{ticker.replace('.', '-')}"
+    return (
+        f'<tr class="why-row" id="{why_id}" style="display:none">'
+        f'<td colspan="{col_count}" style="padding:0;border-bottom:2px solid #bfdbfe">'
+        f'<div class="why-body-inline">{panel_html}</div>'
+        f'</td></tr>'
+    )
 
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -626,42 +642,34 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
 .ib.blue  { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
 .ib.green { background:#f0fdf4; border:1px solid #bbf7d0; color:#14532d; }
 
-/* Why-buy collapsible ─────────────────────────────────────────────────────── */
-details.why { position:static; margin-top:6px; }
-details.why summary {
-  cursor:pointer; display:inline-flex; align-items:center; gap:6px;
-  font-size:11px; font-weight:700; color:#3b82d4; text-transform:uppercase;
-  letter-spacing:.07em; list-style:none; user-select:none;
-  padding:4px 10px; background:#eff6ff; border:1px solid #bfdbfe;
-  border-radius:20px; transition:background .15s; white-space:nowrap;
-}
-details.why summary::-webkit-details-marker { display:none; }
-details.why summary:hover { background:#dbeafe; }
-.why-arrow { display:inline-block; transition:transform .2s ease; flex-shrink:0; }
-details.why[open] summary .why-arrow { transform:rotate(90deg); }
+/* ── Why-buy inline expansion ───────────────────────────────────────────────── */
 
-/* The expanded panel — fixed positioning so it escapes any clipping ancestor */
-details.why { position:relative; }
-/* td containing a why-details must not clip overflow */
-.stbl td { overflow:visible !important; }
-.why-body {
-  display:none;
-  /* fixed: escapes table/td overflow clipping entirely */
-  position:fixed;
-  top:0; left:0;          /* JS sets exact coords via getBoundingClientRect */
-  width:860px;
-  max-width:95vw;
-  z-index:9999;
-  background:#fff;
-  border:1px solid #bfdbfe;
-  border-left:4px solid #3b82d4;
-  border-radius:10px;
-  padding:22px 26px;
-  box-shadow:0 12px 40px rgba(0,0,0,.18);
-  overflow-y:auto;
-  max-height:80vh;
+/* Toggle button (lives in the data row td) */
+.why-btn {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:11px; font-weight:700; color:#3b82d4; text-transform:uppercase;
+  letter-spacing:.06em; cursor:pointer; user-select:none;
+  padding:4px 10px; background:#eff6ff; border:1px solid #bfdbfe;
+  border-radius:20px; transition:background .15s;
+  white-space:nowrap; margin-top:4px;
 }
-details.why[open] .why-body { display:block; }
+.why-btn:hover { background:#dbeafe; }
+.why-btn.open  { background:#dbeafe; border-color:#93c5fd; }
+.why-arrow { display:inline-block; transition:transform .2s ease; flex-shrink:0; }
+.why-arrow.open { transform:rotate(90deg); }
+
+/* The hidden expansion row */
+.why-row td { padding:0 !important; }
+.why-body-inline {
+  padding:20px 28px;
+  background:#f8faff;
+  border-left:4px solid #3b82d4;
+  animation:why-slide .18s ease;
+}
+@keyframes why-slide {
+  from { opacity:0; transform:translateY(-6px); }
+  to   { opacity:1; transform:translateY(0);    }
+}
 
 /* ── Collapsible section wrappers ──────────────────────────────────────────── */
 details.sec-wrap { margin-bottom:20px; }
@@ -770,7 +778,8 @@ def _quality_badge(val: str, kind: str) -> str:
 
 def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
                      passes: bool | None = None) -> str:
-    """Render a single company row for any screener table."""
+    """Render a data row + inline why-buy expansion row for screener tables.
+    Returns two <tr> elements concatenated as a single string."""
     mos_v = _fv(row.get("MoS%", "")) or 0.0
     mc    = _mos_colour(mos_v)
     grade, glabel = _mos_grade(mos_v)
@@ -790,9 +799,12 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
     dcf_model = row.get("DCF Model", "").strip() or "—"
     fit_v = _fv(row.get("ProfileFit", ""))
     fit_cell = ""
+    # col_count = 17 normally, 18 with fit column
+    col_count = 17
     if show_fit and fit_v is not None:
         fc = "#16a34a" if fit_v >= 70 else ("#eab308" if fit_v >= 40 else "#e11d48")
         fit_cell = f'<td class="r" style="width:6%"><span style="font-weight:800;color:{fc}">{fit_v:.0f}</span></td>'
+        col_count = 18
 
     # Pass/fail badge
     if passes is None:
@@ -810,14 +822,21 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
         badge = ('<span style="font-size:9px;background:#fef2f2;color:#dc2626;border-radius:3px;'
                  'padding:1px 5px;font-weight:700">TRAP</span>')
 
+    # Why Buy — generate panel + button
+    ticker, panel_html, sc_v, sc_c = _why_buy(row, profile_key=None)
+    sc_c = sc_c or "#9ca3af"
+    why_btn_html = _why_btn(ticker, sc_v, sc_c) if panel_html else ""
+    why_exp_row  = _why_tr(panel_html, col_count, ticker) if panel_html else ""
+
     rank_html = f'<span style="font-weight:800;color:{colour};font-size:13px">#{rank}</span>'
 
-    return f"""<tr>
+    data_tr = f"""<tr>
       <td style="width:3%">{rank_html}</td>
       <td style="width:12%">
         <div class="ticker-lbl">{row.get('Ticker','')}</div>
         <div class="company-lbl">{row.get('Company','')}</div>
         <div style="margin-top:2px">{badge}</div>
+        {why_btn_html}
       </td>
       <td style="width:9%;color:#57606a;font-size:11px">{row.get('Sector','') or '—'}</td>
       <td class="r" style="width:6%">{_fmt(row.get('Price',''),2,prefix='$')}</td>
@@ -828,7 +847,7 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
       <td class="r" style="width:5%">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
       <td class="r" style="width:6%">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
       <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-      <td class="r" style="width:6%">{_fmt(row.get('NetDebt/EBITDA',''),2,suffix='x')}</td>
+      <td class="r" style="width:6%">{_fmt(row.get('NetDebt/EBITDA',''),2,prefix='')}</td>
       <td style="width:5%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
       <td class="r" style="width:5%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
       <td style="width:6%;text-align:center">
@@ -840,6 +859,7 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
       </td>
       {fit_cell}
     </tr>"""
+    return data_tr + why_exp_row
 
 
 def _table_header(show_fit: bool = False) -> str:
@@ -1364,7 +1384,11 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
             f'</div><div class="gauge-pct" style="color:{mc}">{mos_v:.0f}%</div></div>'
         )
 
-        why = _why_buy(row, profiles=profiles)
+        _, panel_html, sc_v, sc_c = _why_buy(row, profiles=profiles)
+        sc_c = sc_c or "#9ca3af"
+        why_btn_html = _why_btn(tkr, sc_v, sc_c) if panel_html else ""
+        why_exp_row  = _why_tr(panel_html, 12, tkr) if panel_html else ""
+
         rows_html += f"""<tr>
           <td style="width:11%">
             <div style="font-weight:700;font-size:10px;color:{conv_colour};
@@ -1374,7 +1398,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
           <td style="width:13%">
             <div style="font-weight:800;font-size:13px">{tkr}</div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
-            {why}
+            {why_btn_html}
           </td>
           <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '—'}</td>
           <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
@@ -1386,7 +1410,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
           <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
           <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
           <td style="width:15%">{badge_html}</td>
-        </tr>"""
+        </tr>""" + why_exp_row
 
     n_conv = len(ranked)
     top_ticker = ranked[0][0] if ranked else "—"
@@ -1564,8 +1588,12 @@ def _build_overall_top(
                     f'border:1px solid {bg}44;margin:1px">{info[0]}</span>'
                 )
 
-        why = _why_buy(row, profiles=passes_in if passes_in else None,
-                       overall_score=score)
+        _, panel_html, _sc_v, _sc_c = _why_buy(row, profiles=passes_in if passes_in else None,
+                                                overall_score=score)
+        _sc_c = _sc_c or "#9ca3af"
+        why_btn_html = _why_btn(tkr, _sc_v if _sc_v is not None else score, _sc_c) if panel_html else ""
+        why_exp_row  = _why_tr(panel_html, 14, tkr) if panel_html else ""
+
         rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
 
         rows_html += f"""<tr>
@@ -1575,7 +1603,7 @@ def _build_overall_top(
           <td style="width:13%">
             <div style="font-weight:800;font-size:14px">{tkr}</div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
-            {why}
+            {why_btn_html}
           </td>
           <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '&mdash;'}</td>
           <td class="r" style="width:7%">
@@ -1595,7 +1623,7 @@ def _build_overall_top(
             {grade}
             <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
           </td>
-        </tr>"""
+        </tr>""" + why_exp_row
 
     return f"""
     <span class="section-anchor" id="overall_top"></span>
@@ -2338,82 +2366,39 @@ def build_full_report(out_path: Path) -> None:
 </div>
 
 <script>
-/* Position every .why-body panel using fixed coords derived from the
-   summary button's screen position. Works regardless of scroll, table
-   clipping, or which container the details sits in.                    */
-(function () {{
+/* Inline Why-Buy row toggle — no fixed positioning, pure in-page expansion */
+function toggleWhy(id) {{
+  var row = document.getElementById(id);
+  var btn = document.getElementById('btn-' + id);
+  var arr = document.getElementById('arr-' + id);
+  if (!row) return;
 
-  function positionPanel(det) {{
-    var panel = det.querySelector('.why-body');
-    if (!panel || !det.open) return;
+  var isOpen = row.style.display !== 'none';
 
-    var summary = det.querySelector('summary');
-    var anchor  = summary ? summary.getBoundingClientRect() : det.getBoundingClientRect();
-
-    /* Align panel with the left edge of .sec-body or .page — whichever is closest */
-    var container = det.closest('.sec-body') || det.closest('.section') || document.querySelector('.page');
-    var cR = container ? container.getBoundingClientRect() : {{ left:20, width: window.innerWidth - 40 }};
-
-    /* panel left = left of container, with a small inset */
-    var left  = Math.max(cR.left + 8, 8);
-    var width = Math.min(cR.width - 16, 1380, window.innerWidth - left - 8);
-
-    /* top = just below the summary button */
-    var top = anchor.bottom + 6;
-    /* if it would overflow viewport bottom, flip above */
-    var panelH = Math.min(window.innerHeight * 0.80, 700);
-    if (top + panelH > window.innerHeight - 20) {{
-      top = Math.max(anchor.top - panelH - 6, 8);
+  /* close all other open why-rows first */
+  document.querySelectorAll('.why-row').forEach(function(r) {{
+    if (r !== row && r.style.display !== 'none') {{
+      r.style.display = 'none';
+      var otherId = r.id;
+      var otherBtn = document.getElementById('btn-' + otherId);
+      var otherArr = document.getElementById('arr-' + otherId);
+      if (otherBtn) otherBtn.classList.remove('open');
+      if (otherArr) otherArr.classList.remove('open');
     }}
+  }});
 
-    panel.style.left   = left + 'px';
-    panel.style.top    = top + 'px';
-    panel.style.width  = Math.max(width, 380) + 'px';
+  if (isOpen) {{
+    row.style.display = 'none';
+    if (btn) btn.classList.remove('open');
+    if (arr) arr.classList.remove('open');
+  }} else {{
+    row.style.display = '';
+    if (btn) btn.classList.add('open');
+    if (arr) arr.classList.add('open');
+    /* smooth scroll so expansion is visible */
+    setTimeout(function() {{ row.scrollIntoView({{behavior:'smooth', block:'nearest'}}); }}, 50);
   }}
-
-  function closeOthers(current) {{
-    document.querySelectorAll('details.why[open]').forEach(function (d) {{
-      if (d !== current) d.removeAttribute('open');
-    }});
-  }}
-
-  /* Re-position on resize / scroll */
-  window.addEventListener('resize', function () {{
-    document.querySelectorAll('details.why[open]').forEach(positionPanel);
-  }});
-  window.addEventListener('scroll', function () {{
-    document.querySelectorAll('details.why[open]').forEach(positionPanel);
-  }}, true);
-
-  /* Click outside → close */
-  document.addEventListener('click', function (e) {{
-    if (!e.target.closest('details.why')) {{
-      document.querySelectorAll('details.why[open]').forEach(function (d) {{
-        d.removeAttribute('open');
-      }});
-    }}
-  }});
-
-  /* toggle event — capture phase so it fires right as open flips to true */
-  document.addEventListener('toggle', function (e) {{
-    var det = e.target;
-    if (!det.classList || !det.classList.contains('why')) return;
-    if (det.open) {{
-      closeOthers(det);
-      positionPanel(det);
-      requestAnimationFrame(function () {{ positionPanel(det); }});
-    }}
-  }}, true);
-
-  /* click fallback (some browsers fire toggle after layout) */
-  document.querySelectorAll('details.why').forEach(function (det) {{
-    det.addEventListener('click', function () {{
-      setTimeout(function () {{ if (det.open) positionPanel(det); }}, 0);
-      setTimeout(function () {{ if (det.open) positionPanel(det); }}, 120);
-    }});
-  }});
-
-}})();
+}}
 </script>
 </body>
 </html>"""
