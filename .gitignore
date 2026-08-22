@@ -1,6 +1,9 @@
-ï»¿# Runtime data
+# Runtime data
 data/cache.duckdb
 data/reports/
+
+# GitHub Pages output — tracked intentionally
+!docs/index.html
 
 # Python
 __pycache__/

@@ -2688,6 +2688,16 @@ function toggleWhy(id) {{
     print(f"  Total ranked rows: {total_ranked}")
     print(f"  Report size: {out_path.stat().st_size / 1024:.0f} KB")
 
+    # ── Publish to docs/index.html for GitHub Pages ───────────────────────────
+    docs_dir  = Path(__file__).parent.parent / "docs"
+    docs_path = docs_dir / "index.html"
+    try:
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        docs_path.write_text(html, encoding="utf-8")
+        print(f"  GitHub Pages copy: {docs_path}")
+    except Exception as exc:
+        print(f"  [warn] Could not write docs/index.html: {exc}")
+
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
