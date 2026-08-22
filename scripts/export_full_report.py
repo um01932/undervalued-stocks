@@ -2691,12 +2691,75 @@ function toggleWhy(id) {{
     # ── Publish to docs/index.html for GitHub Pages ───────────────────────────
     docs_dir  = Path(__file__).parent.parent / "docs"
     docs_path = docs_dir / "index.html"
+    wrote_ok  = False
     try:
         docs_dir.mkdir(parents=True, exist_ok=True)
         docs_path.write_text(html, encoding="utf-8")
         print(f"  GitHub Pages copy: {docs_path}")
+        wrote_ok = True
     except Exception as exc:
         print(f"  [warn] Could not write docs/index.html: {exc}")
+
+    # ── Auto git add + commit + push ──────────────────────────────────────────
+    if wrote_ok:
+        _git_push_pages(docs_path, now)
+
+
+def _git_push_pages(docs_path: Path, run_ts: str) -> None:
+    """git add docs/index.html → commit → push to main (reads token from .github_credentials)."""
+    import subprocess
+
+    repo_root   = Path(__file__).parent.parent
+    creds_file  = repo_root / ".github_credentials"
+
+    # Read token
+    token = None
+    if creds_file.exists():
+        for line in creds_file.read_text().splitlines():
+            if line.startswith("GITHUB_TOKEN="):
+                token = line.split("=", 1)[1].strip()
+                break
+
+    def _run(args: list[str], **kw) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            args, cwd=str(repo_root),
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            **kw
+        )
+
+    try:
+        # stage only docs/index.html
+        _run(["git", "add", "docs/index.html"])
+
+        # check if there's anything to commit
+        status = _run(["git", "status", "--porcelain", "docs/index.html"])
+        if not status.stdout.strip():
+            print("  GitHub Pages: no changes to push.")
+            return
+
+        # commit
+        commit_msg = f"chore: update GitHub Pages report [{run_ts}]"
+        _run(["git", "commit", "-m", commit_msg])
+
+        # set remote with token, push, restore clean remote
+        if token:
+            _run(["git", "remote", "set-url", "origin",
+                  f"https://{token}@github.com/um01932/undervalued-stocks.git"])
+
+        push = _run(["git", "push", "origin", "main"])
+
+        if token:
+            _run(["git", "remote", "set-url", "origin",
+                  "https://github.com/um01932/undervalued-stocks.git"])
+
+        if push.returncode == 0:
+            print("  GitHub Pages pushed -> https://um01932.github.io/undervalued-stocks/")
+        else:
+            print(f"  [warn] git push failed: {push.stderr.strip()[:200]}")
+
+    except Exception as exc:
+        print(f"  [warn] Auto-push failed: {exc}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
