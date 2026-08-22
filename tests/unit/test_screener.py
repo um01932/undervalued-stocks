@@ -441,3 +441,133 @@ class TestQualityValueProfile:
         df = apply_profile([low_mos, high_mos], profile)
         if not df.empty and len(df) >= 2:
             assert df.iloc[0]["Ticker"] == "HIGH"
+
+
+# ── Sub-Task 1: ROE + Gross Margin filter tests ───────────────────────────────
+
+def _make_result_st1(
+    roe: float | None = None,
+    gross_margin: float | None = None,
+    **kwargs,
+) -> ValuationResult:
+    """Fixture with ROE and gross_margin fields set."""
+    base = {
+        "ticker": "ST1",
+        "company_name": "ST1 Corp",
+        "sector": "Technology",
+        "industry": "Software",
+        "current_price": 100.0,
+        "market_cap": 10e9,
+        "pe_ratio": 12.0,
+        "pb_ratio": 1.2,
+        "ev_ebitda": 7.0,
+        "p_fcf": 10.0,
+        "net_debt_ebitda": 1.0,
+        "dcf_ggm_intrinsic": 150.0,
+        "dcf_exit_intrinsic": 135.72,
+        "dcf_intrinsic_value": 142.86,
+        "margin_of_safety_pct": 30.0,
+        "status": "OK",
+        "roe": roe,
+        "gross_margin": gross_margin,
+    }
+    base.update(kwargs)
+    return ValuationResult(**base)
+
+
+class TestRoeFilter:
+    def test_min_roe_filter_passes(self):
+        """Company with roe=0.20 (20%) passes min_roe=15.0."""
+        profile = ScreenerProfile(name="test", min_roe=15.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=0.20)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_min_roe_filter_fails(self):
+        """Company with roe=0.08 (8%) fails min_roe=15.0."""
+        profile = ScreenerProfile(name="test", min_roe=15.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=0.08)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_min_roe_at_threshold_passes(self):
+        """Company with exactly roe=0.15 (15%) passes min_roe=15.0."""
+        profile = ScreenerProfile(name="test", min_roe=15.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=0.15)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_min_roe_none_passes_filter(self):
+        """Missing roe (None) should not disqualify — data unavailable."""
+        profile = ScreenerProfile(name="test", min_roe=15.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_no_min_roe_threshold_always_passes(self):
+        """When min_roe is None (no threshold), any roe value passes."""
+        profile = ScreenerProfile(name="test", min_roe=None, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=0.01)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+
+class TestGrossMarginFilter:
+    def test_min_gross_margin_filter_passes(self):
+        """Company with gross_margin=0.45 (45%) passes min_gross_margin=30.0."""
+        profile = ScreenerProfile(name="test", min_gross_margin=30.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(gross_margin=0.45)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_min_gross_margin_filter_fails(self):
+        """Company with gross_margin=0.15 (15%) fails min_gross_margin=30.0."""
+        profile = ScreenerProfile(name="test", min_gross_margin=30.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(gross_margin=0.15)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_min_gross_margin_at_threshold_passes(self):
+        """Company with exactly gross_margin=0.30 (30%) passes min_gross_margin=30.0."""
+        profile = ScreenerProfile(name="test", min_gross_margin=30.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(gross_margin=0.30)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_min_gross_margin_none_passes_filter(self):
+        """Missing gross_margin (None) should not disqualify — data unavailable."""
+        profile = ScreenerProfile(name="test", min_gross_margin=30.0, min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(gross_margin=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+
+class TestBuffettQualityRoeFilter:
+    def test_buffett_quality_has_min_roe(self):
+        """buffett_quality profile should now include min_roe=15.0."""
+        p = BUILTIN_PROFILES["buffett_quality"]
+        assert p.min_roe == 15.0
+
+    def test_buffett_quality_columns_include_roe(self):
+        """apply_profile output should include ROE%, ROA%, Beta, Gross Margin% columns."""
+        from src.screener import _OUTPUT_COLUMNS
+        assert "ROE%" in _OUTPUT_COLUMNS
+        assert "ROA%" in _OUTPUT_COLUMNS
+        assert "Beta" in _OUTPUT_COLUMNS
+        assert "Gross Margin%" in _OUTPUT_COLUMNS
+
+    def test_apply_profile_roe_column_populated(self):
+        """ROE% column in DataFrame should reflect roe * 100."""
+        profile = ScreenerProfile(name="test", min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(roe=0.22)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+        assert df.iloc[0]["ROE%"] == pytest.approx(22.0)
+
+    def test_apply_profile_gross_margin_column_populated(self):
+        """Gross Margin% column in DataFrame should reflect gross_margin * 100."""
+        profile = ScreenerProfile(name="test", min_margin_of_safety_pct=20.0)
+        results = [_make_result_st1(gross_margin=0.45)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+        assert df.iloc[0]["Gross Margin%"] == pytest.approx(45.0)

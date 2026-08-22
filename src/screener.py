@@ -63,6 +63,10 @@ class ScreenerProfile(BaseModel):
     min_roic: Optional[float] = None               # % threshold (e.g. 8.0 for 8%)
     exclude_altman_distress: bool = False           # exclude Z < 1.0 when True (real distress zone; 1.81 is Grey Zone)
 
+    # Sub-Task 1 — extended quality filters
+    min_roe: Optional[float] = None                # % threshold e.g. 15.0
+    min_gross_margin: Optional[float] = None       # % threshold e.g. 30.0
+
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
 
@@ -89,6 +93,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_margin_of_safety_pct=15.0,
         min_piotroski=5,
         min_roic=10.0,
+        min_roe=15.0,
     ),
     "high_fcf_yield": ScreenerProfile(
         name="high_fcf_yield",
@@ -226,7 +231,7 @@ _OUTPUT_COLUMNS = [
     "52w Low", "52w High", "52w Position%",
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
     "DCF GGM", "DCF Exit", "DCF Avg", "DCF Model",
-    "Piotroski", "ROIC%", "Score",
+    "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%", "Score",
 ]
 
 # Columns for the Dow 30 ranking report (no MoS filter, ranked by 52w position)
@@ -293,6 +298,16 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         if result.roic * 100 < profile.min_roic:
             return False
 
+    # ROE — None passes (missing data); threshold stored in %, result stored as decimal
+    if profile.min_roe is not None and result.roe is not None:
+        if result.roe * 100 < profile.min_roe:
+            return False
+
+    # Gross Margin — None passes (missing data); threshold stored in %, result stored as decimal
+    if profile.min_gross_margin is not None and result.gross_margin is not None:
+        if result.gross_margin * 100 < profile.min_gross_margin:
+            return False
+
     return True
 
 
@@ -346,6 +361,10 @@ def apply_profile(
             "DCF Model":        r.dcf_model_used or "—",
             "Piotroski":        r.piotroski_score,
             "ROIC%":            (r.roic * 100) if r.roic is not None else None,
+            "ROE%":             (r.roe * 100) if r.roe is not None else None,
+            "ROA%":             (r.roa * 100) if r.roa is not None else None,
+            "Beta":             r.beta,
+            "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Score":            r.composite_score,
         })
 
@@ -485,6 +504,10 @@ def rank_all(
             "DCF Model":        r.dcf_model_used or "—",
             "Piotroski":        r.piotroski_score,
             "ROIC%":            (r.roic * 100) if r.roic is not None else None,
+            "ROE%":             (r.roe * 100) if r.roe is not None else None,
+            "ROA%":             (r.roa * 100) if r.roa is not None else None,
+            "Beta":             r.beta,
+            "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Score":            r.composite_score,
             "Passes":           passes,
             "ProfileFit":       profile_fit,

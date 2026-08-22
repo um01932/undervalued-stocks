@@ -1060,3 +1060,62 @@ class TestEvaluateWithDynamicWacc:
         result_default = evaluate(data, DEFAULT_PARAMS)
         result_explicit = evaluate(data, DEFAULT_PARAMS, rf_rate=0.045)
         assert result_default.wacc_used == pytest.approx(result_explicit.wacc_used or 0, rel=1e-6)
+
+
+# ── Sub-Task 1: ROE / ROA / Beta / Gross Margin / Operating Margin ────────────
+
+class TestEvaluateExtendedQualityFields:
+    def _make_data_with_extended_info(self, **extra_info) -> "TickerData":
+        """TickerData with extended quality keys in info dict."""
+        info = _make_info()
+        info.update(extra_info)
+        return _make_ticker_data(info=info)
+
+    def test_evaluate_roe_roa_beta_populated(self):
+        """roe/roa/beta/gross_margin/operating_margin populated when info has those keys."""
+        data = self._make_data_with_extended_info(
+            returnOnEquity=0.22,
+            returnOnAssets=0.09,
+            beta=1.15,
+            grossMargins=0.43,
+            operatingMargins=0.28,
+        )
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.roe == pytest.approx(0.22)
+        assert result.roa == pytest.approx(0.09)
+        assert result.beta == pytest.approx(1.15)
+        assert result.gross_margin == pytest.approx(0.43)
+        assert result.operating_margin == pytest.approx(0.28)
+
+    def test_evaluate_roe_missing_gracefully(self):
+        """No crash when returnOnEquity / related keys are absent; fields default to None."""
+        data = _make_ticker_data()   # info has no returnOnEquity etc.
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.roe is None
+        assert result.roa is None
+        assert result.gross_margin is None
+        assert result.operating_margin is None
+
+    def test_evaluate_roe_nan_becomes_none(self):
+        """NaN values in info are treated as None (not stored as NaN)."""
+        import math
+        data = self._make_data_with_extended_info(
+            returnOnEquity=float("nan"),
+            returnOnAssets=float("nan"),
+        )
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.roe is None
+        assert result.roa is None
+
+    def test_evaluate_beta_stored_as_is(self):
+        """Beta is stored as a raw float (not scaled)."""
+        data = self._make_data_with_extended_info(beta=0.75)
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.beta == pytest.approx(0.75)
+
+    def test_evaluate_negative_roe_stored(self):
+        """Negative ROE (loss-making) is stored as-is (not coerced to None)."""
+        data = self._make_data_with_extended_info(returnOnEquity=-0.05)
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.roe is not None
+        assert result.roe < 0

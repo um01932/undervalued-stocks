@@ -105,6 +105,13 @@ class ValuationResult(BaseModel):
     wacc_used: Optional[float] = None              # Effective WACC applied to this ticker's DCF
     growth_used: Optional[float] = None            # Effective growth rate applied to this ticker's DCF
 
+    # Extended quality metrics (Sub-Task 1)
+    roe: Optional[float] = None              # Return on Equity (decimal, e.g. 0.15 = 15%)
+    roa: Optional[float] = None              # Return on Assets (decimal)
+    beta: Optional[float] = None             # Market beta vs S&P 500
+    gross_margin: Optional[float] = None     # Gross margin (decimal)
+    operating_margin: Optional[float] = None # Operating margin (decimal)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -750,6 +757,16 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
     altman_z_v = compute_altman_z(data)
     roic_v     = compute_roic(data)
 
+    # Extended quality metrics — read directly from info dict
+    try:
+        roe_v             = _safe_val(info.get("returnOnEquity"))
+        roa_v             = _safe_val(info.get("returnOnAssets"))
+        beta_v            = _safe_val(info.get("beta"))
+        gross_margin_v    = _safe_val(info.get("grossMargins"))
+        operating_margin_v = _safe_val(info.get("operatingMargins"))
+    except Exception:
+        roe_v = roa_v = beta_v = gross_margin_v = operating_margin_v = None
+
     result = ValuationResult(
         ticker=data.ticker,
         company_name=info.get("short_name"),
@@ -778,6 +795,11 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         roic=roic_v,
         wacc_used=None if financial else params_dynamic.discount_rate,
         growth_used=None if financial else params_dynamic.growth_rate,
+        roe=roe_v,
+        roa=roa_v,
+        beta=beta_v,
+        gross_margin=gross_margin_v,
+        operating_margin=operating_margin_v,
     )
     from src.screener import compute_composite_score  # late import to avoid circular dep
     result.composite_score = compute_composite_score(result)

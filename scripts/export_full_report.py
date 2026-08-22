@@ -419,7 +419,7 @@ def _price_chart_svg(ohlc: list[dict], ticker: str = "") -> str:
 
 
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
-    """3 metric cards: MoS, Piotroski, ROIC + composite/overall score badges."""
+    """4 metric cards: MoS, Piotroski, ROIC, ROE + composite/overall score badges."""
     def _norm(v, lo, hi):
         if v is None: return 0.0
         return min(max((v - lo) / (hi - lo), 0.0), 1.0)
@@ -427,11 +427,13 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     mos_v  = _fv(row.get("MoS%", ""))
     pio_v  = _fv(row.get("Piotroski", ""))
     roic_v = _fv(row.get("ROIC%", ""))
+    roe_v  = _fv(row.get("ROE%", ""))
     comp_v = _fv(row.get("Score", ""))
 
     mos_n  = _norm(mos_v,  0, 60)
     pio_n  = _norm(pio_v,  0, 9)
     roic_n = _norm(roic_v, 0, 30)
+    roe_n  = _norm(roe_v,  0, 25)
 
     def _bar(n, colour):
         w = round(n * 80, 1)
@@ -461,7 +463,10 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
               pio_n, "#7c3aed", "25%", pio_n * 25) +
         _card("ROIC",
               f"{roic_v:.1f}%" if roic_v is not None else "—",
-              roic_n, "#059669", "25%", roic_n * 25)
+              roic_n, "#059669", "25%", roic_n * 25) +
+        _card("ROE",
+              f"{roe_v:.1f}%" if roe_v is not None else "—",
+              roe_n, "#d97706", "10%", roe_n * 10)
     )
 
     # totals row
@@ -489,7 +494,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     <div style="margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                   letter-spacing:.06em;margin-bottom:8px">Score Breakdown
-        <span style="font-weight:400;color:#c0c4cb"> — MoS×40% + Piotroski×25% + ROIC×25%</span>
+        <span style="font-weight:400;color:#c0c4cb"> — MoS×40% + Piotroski×25% + ROIC×25% + ROE (informational)</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">{cards}</div>
       <div style="margin-top:4px">{totals}</div>
@@ -658,6 +663,24 @@ def _why_buy(row: dict, profile_key: str | None = None,
                 f"ROIC of <strong>{roic_v:.1f}%</strong> is modest; the investment case rests on the "
                 f"price discount rather than capital efficiency."
             )
+
+    # ── Sentence 8b: ROE quality signal ──────────────────────────────────────
+    roe_v2 = _fv(row.get("ROE%", ""))
+    if roe_v2 is not None and roe_v2 >= 15:
+        sentences.append(
+            f"A <strong>Return on Equity of {roe_v2:.1f}%</strong> — above the 15% threshold Buffett uses "
+            f"as a signal of durable competitive advantage — shows that {ticker} generates strong profits "
+            f"relative to shareholders' book value, a hallmark of high-quality franchises."
+        )
+
+    # ── Sentence 8c: Gross margin signal ─────────────────────────────────────
+    gm_v = _fv(row.get("Gross Margin%", ""))
+    if gm_v is not None and gm_v >= 40:
+        sentences.append(
+            f"A gross margin of <strong>{gm_v:.1f}%</strong> is exceptional — companies that retain "
+            f"40%+ of each revenue dollar after direct costs typically possess strong pricing power "
+            f"and structural cost advantages that are difficult for competitors to replicate."
+        )
 
     # ── Sentence 9: 52w position ─────────────────────────────────────────────
     if pos_v is not None and low_v is not None and high_v is not None:
