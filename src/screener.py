@@ -230,7 +230,7 @@ _OUTPUT_COLUMNS = [
     "Ticker", "Company", "Sector", "Industry", "Price",
     "52w Low", "52w High", "52w Position%",
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
-    "DCF GGM", "DCF Exit", "DCF Avg", "DCF Model",
+    "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
     "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%", "Score",
 ]
 
@@ -357,6 +357,7 @@ def apply_profile(
             "NetDebt/EBITDA":   r.net_debt_ebitda,
             "DCF GGM":          r.dcf_ggm_intrinsic,
             "DCF Exit":         r.dcf_exit_intrinsic,
+            "Graham":           r.graham_number,
             "DCF Avg":          r.dcf_intrinsic_value,
             "DCF Model":        r.dcf_model_used or "—",
             "Piotroski":        r.piotroski_score,
@@ -500,6 +501,7 @@ def rank_all(
             "NetDebt/EBITDA":   r.net_debt_ebitda,
             "DCF GGM":          r.dcf_ggm_intrinsic,
             "DCF Exit":         r.dcf_exit_intrinsic,
+            "Graham":           r.graham_number,
             "DCF Avg":          r.dcf_intrinsic_value,
             "DCF Model":        r.dcf_model_used or "—",
             "Piotroski":        r.piotroski_score,

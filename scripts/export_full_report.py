@@ -682,6 +682,22 @@ def _why_buy(row: dict, profile_key: str | None = None,
             f"and structural cost advantages that are difficult for competitors to replicate."
         )
 
+    # ── Sentence 8d: Graham Number ────────────────────────────────────────────
+    graham_v = _fv(row.get("Graham", ""))
+    if graham_v is not None:
+        if price_v is not None and price_v < graham_v:
+            sentences.append(
+                f"Even the conservative <strong>Graham Number of ${graham_v:,.2f}</strong> — which uses "
+                f"only earnings and book value, no growth assumptions — sits above the current price, "
+                f"providing a second independent confirmation of undervaluation."
+            )
+        elif price_v is not None and price_v > graham_v * 1.2:
+            sentences.append(
+                f"Note: the Graham Number of <strong>${graham_v:,.2f}</strong> (based purely on book value "
+                f"and earnings) is below the current price, so the valuation case here rests primarily "
+                f"on the DCF model and future cash flow growth."
+            )
+
     # ── Sentence 9: 52w position ─────────────────────────────────────────────
     if pos_v is not None and low_v is not None and high_v is not None:
         if pos_v < 20:

@@ -6,6 +6,7 @@ Uses synthetic TickerData fixtures; no real network calls.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from src.engine import (
     compute_dcf_ddm,
     compute_dcf_exit,
     compute_dcf_ggm,
+    compute_graham_number,
     compute_multiples,
     evaluate,
 )
@@ -1119,3 +1121,74 @@ class TestEvaluateExtendedQualityFields:
         result = evaluate(data, DEFAULT_PARAMS)
         assert result.roe is not None
         assert result.roe < 0
+
+
+# ── compute_graham_number ─────────────────────────────────────────────────────
+
+class TestComputeGrahamNumber:
+    """Tests for compute_graham_number()."""
+
+    def _make_graham_data(
+        self,
+        net_income: float = 5.0,
+        stockholders_equity: float = 20.0,
+        shares: float = 1.0,
+    ) -> TickerData:
+        """Minimal TickerData for Graham Number tests (per-share inputs)."""
+        info = _make_info()
+        info["sharesOutstanding"] = shares
+        return TickerData(
+            ticker="GTEST",
+            info=info,
+            cashflow=[],
+            financials=[{"period_date": "2023-09-30", "net_income": net_income}],
+            balance_sheet=[{"period_date": "2023-09-30", "stockholders_equity": stockholders_equity}],
+        )
+
+    def test_graham_number_valid(self):
+        """EPS=5, BVPS=20 → sqrt(22.5 × 5 × 20) = sqrt(2250) ≈ 47.43."""
+        # With shares=1.0 the raw values ARE eps and bvps directly
+        data = self._make_graham_data(net_income=5.0, stockholders_equity=20.0, shares=1.0)
+        result = compute_graham_number(data)
+        assert result == pytest.approx(math.sqrt(22.5 * 5.0 * 20.0), rel=1e-3)
+
+    def test_graham_number_negative_equity(self):
+        """Negative stockholders_equity → None."""
+        data = self._make_graham_data(stockholders_equity=-10.0)
+        assert compute_graham_number(data) is None
+
+    def test_graham_number_negative_earnings(self):
+        """Negative net_income → None."""
+        data = self._make_graham_data(net_income=-5.0)
+        assert compute_graham_number(data) is None
+
+    def test_graham_number_missing_shares(self):
+        """Missing sharesOutstanding → None."""
+        data = self._make_graham_data()
+        data.info["sharesOutstanding"] = None
+        assert compute_graham_number(data) is None
+
+    def test_graham_number_zero_shares(self):
+        """Zero sharesOutstanding → None."""
+        data = self._make_graham_data()
+        data.info["sharesOutstanding"] = 0
+        assert compute_graham_number(data) is None
+
+    def test_evaluate_graham_number_in_result(self):
+        """evaluate() populates graham_number when financials/balance_sheet are present."""
+        info = _make_info()
+        info["sharesOutstanding"] = 16e9
+        data = TickerData(
+            ticker="GEVAL",
+            info=info,
+            cashflow=_make_cf_rows([90e9, 80e9, 75e9]),
+            financials=[{"period_date": "2023-09-30", "net_income": 100e9}],
+            balance_sheet=[{"period_date": "2023-09-30", "stockholders_equity": 200e9,
+                            "total_assets": 350e9, "total_liabilities": 150e9,
+                            "total_debt": 110e9, "total_cash": 50e9}],
+        )
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.graham_number is not None
+        # eps = 100e9/16e9, bvps = 200e9/16e9 → should be > 0
+        assert result.graham_number > 0
+

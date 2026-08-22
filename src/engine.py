@@ -32,6 +32,7 @@ __all__ = [
     "compute_dcf_ggm",
     "compute_dcf_exit",
     "compute_dcf_ddm",
+    "compute_graham_number",
     "compute_piotroski",
     "compute_altman_z",
     "compute_roic",
@@ -85,6 +86,7 @@ class ValuationResult(BaseModel):
     # DCF estimates (per share)
     dcf_ggm_intrinsic: Optional[float] = None      # Gordon Growth Model
     dcf_exit_intrinsic: Optional[float] = None     # Exit Multiple
+    graham_number: Optional[float] = None          # Graham Number = sqrt(22.5 × EPS × BVPS)
     dcf_intrinsic_value: Optional[float] = None    # Average of available methods
 
     margin_of_safety_pct: Optional[float] = None
@@ -305,6 +307,38 @@ def compute_dcf_exit(data: TickerData, params: DCFParams) -> Optional[float]:
         return None
 
     return equity_value / shares
+
+
+# ── Graham Number ─────────────────────────────────────────────────────────────
+
+
+def compute_graham_number(ticker_data: TickerData) -> Optional[float]:
+    """
+    Graham Number = sqrt(22.5 × EPS × BVPS)
+    EPS  = most recent annual net_income / shares_outstanding
+    BVPS = most recent stockholders_equity / shares_outstanding
+    Returns None if either is <= 0 or data missing.
+    """
+    shares = _safe_val(ticker_data.info.get("sharesOutstanding"))
+    if not shares or shares <= 0:
+        return None
+
+    if not ticker_data.financials:
+        return None
+    net_income = _safe_val(ticker_data.financials[0].get("net_income"))
+    if net_income is None or net_income <= 0:
+        return None
+
+    if not ticker_data.balance_sheet:
+        return None
+    equity = _safe_val(ticker_data.balance_sheet[0].get("stockholders_equity"))
+    if equity is None or equity <= 0:
+        return None
+
+    eps = net_income / shares
+    bvps = equity / shares
+
+    return round(math.sqrt(22.5 * eps * bvps), 2)
 
 
 # ── Value-trap detection ──────────────────────────────────────────────────────
@@ -695,6 +729,7 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
 
     ggm: Optional[float] = None
     exit_m: Optional[float] = None
+    graham: Optional[float] = None
     intrinsic: Optional[float] = None
     dcf_model_used: Optional[str] = None
 
@@ -705,19 +740,22 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
             intrinsic = ddm
             dcf_model_used = "DDM"
     else:
-        # Non-financial companies: run both standard DCF methods
+        # Non-financial companies: run GGM, Exit Multiple, and Graham Number
         ggm = compute_dcf_ggm(data, params_dynamic)
         exit_m = compute_dcf_exit(data, params_dynamic)
+        graham = compute_graham_number(data)
 
-        if ggm is not None and exit_m is not None:
-            intrinsic = (ggm + exit_m) / 2.0
-            dcf_model_used = "GGM+Exit"
-        elif ggm is not None:
-            intrinsic = ggm
-            dcf_model_used = "GGM"
-        elif exit_m is not None:
-            intrinsic = exit_m
-            dcf_model_used = "Exit"
+        available = [v for v in (ggm, exit_m, graham) if v is not None]
+        if available:
+            intrinsic = sum(available) / len(available)
+            parts: list[str] = []
+            if ggm is not None:
+                parts.append("GGM")
+            if exit_m is not None:
+                parts.append("Exit")
+            if graham is not None:
+                parts.append("Graham")
+            dcf_model_used = "+".join(parts)
 
     # Status
     is_trap = _is_value_trap(data, multiples.get("net_debt_ebitda"))
@@ -785,6 +823,7 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         price_vs_52w_low_pct=price_vs_52w_low_pct,
         dcf_ggm_intrinsic=ggm,
         dcf_exit_intrinsic=exit_m,
+        graham_number=graham,
         dcf_intrinsic_value=intrinsic,
         margin_of_safety_pct=mos,
         status=status,
