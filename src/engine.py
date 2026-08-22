@@ -35,6 +35,7 @@ __all__ = [
     "compute_graham_number",
     "compute_piotroski",
     "compute_altman_z",
+    "compute_beneish_m_score",
     "compute_roic",
     "compute_wacc",
     "compute_sustainable_growth",
@@ -100,6 +101,8 @@ class ValuationResult(BaseModel):
     # Quality metrics (Phase 2)
     piotroski_score: Optional[int] = None          # 0–7 (F6/F7 skipped); None = unavailable/financial
     altman_z: Optional[float] = None               # Z-score; None = unavailable/financial
+    beneish_m: Optional[float] = None              # Beneish M-Score; None = unavailable
+    beneish_flag: bool = False                     # True when M > -1.78 (potential manipulator)
     roic: Optional[float] = None                   # Return on Invested Capital (decimal); None = unavailable
     composite_score: Optional[float] = None        # 0–100 composite rank score
 
@@ -576,6 +579,108 @@ def compute_altman_z(data: TickerData) -> Optional[float]:
     return None if math.isnan(z) or math.isinf(z) else round(z, 4)
 
 
+# ── Beneish M-Score ───────────────────────────────────────────────────────────
+
+
+def compute_beneish_m_score(ticker_data: TickerData) -> Optional[float]:
+    """
+    Beneish M-Score — detects probability of earnings manipulation.
+    Requires 2+ consecutive years of financials, cashflow, balance_sheet.
+    Returns M-Score float. M > -1.78 indicates potential manipulator.
+    Returns None if insufficient data.
+
+    8 indices (Beneish 1999):
+      DSRI  = Days Sales Receivable Index  (proxy: revenue growth vs asset growth)
+      GMI   = Gross Margin Index
+      AQI   = Asset Quality Index          (proxy: non-current assets / total assets)
+      SGI   = Sales Growth Index
+      DEPI  = Depreciation Index           (not in data → use 1.0 neutral)
+      SGAI  = SGA Expense Index            (not in data → use 1.0 neutral)
+      LVGI  = Leverage Index               (total_liabilities / total_assets)
+      TATA  = Total Accruals to Total Assets (net_income - operating_cashflow) / total_assets
+    """
+    def _rows_by_date(rows: list[dict]) -> dict[str, dict]:
+        return {r["period_date"]: r for r in rows if r.get("period_date")}
+
+    fin_by_date = _rows_by_date(ticker_data.financials)
+    cf_by_date  = _rows_by_date(ticker_data.cashflow)
+    bs_by_date  = _rows_by_date(ticker_data.balance_sheet)
+
+    common_dates = sorted(
+        set(fin_by_date) & set(cf_by_date) & set(bs_by_date),
+        reverse=True,
+    )
+
+    if len(common_dates) < 2:
+        return None
+
+    def _get(rows_by_date: dict, date: str, key: str) -> Optional[float]:
+        return _safe_val(rows_by_date.get(date, {}).get(key))
+
+    d0, d1 = common_dates[0], common_dates[1]
+
+    rev_t        = _get(fin_by_date, d0, "total_revenue")
+    rev_t1       = _get(fin_by_date, d1, "total_revenue")
+    gp_t         = _get(fin_by_date, d0, "gross_profit")
+    gp_t1        = _get(fin_by_date, d1, "gross_profit")
+    net_income_t = _get(fin_by_date, d0, "net_income")
+
+    op_cf_t      = _get(cf_by_date, d0, "operating_cashflow")
+
+    assets_t     = _get(bs_by_date, d0, "total_assets")
+    assets_t1    = _get(bs_by_date, d1, "total_assets")
+    cash_t       = _get(bs_by_date, d0, "total_cash")
+    cash_t1      = _get(bs_by_date, d1, "total_cash")
+    liab_t       = _get(bs_by_date, d0, "total_liabilities")
+    liab_t1      = _get(bs_by_date, d1, "total_liabilities")
+
+    # SGI — Sales Growth Index
+    sgi = rev_t / rev_t1 if (rev_t is not None and rev_t1 and rev_t1 != 0) else 1.0
+
+    # GMI — Gross Margin Index
+    cogs_t  = (rev_t  - gp_t)  if (rev_t  is not None and gp_t  is not None) else None
+    cogs_t1 = (rev_t1 - gp_t1) if (rev_t1 is not None and gp_t1 is not None) else None
+    gm_t  = (rev_t  - (cogs_t  or 0)) / rev_t  if rev_t  else None
+    gm_t1 = (rev_t1 - (cogs_t1 or 0)) / rev_t1 if rev_t1 else None
+    gmi = (gm_t1 / gm_t) if (gm_t and gm_t > 0 and gm_t1 is not None) else 1.0
+
+    # AQI — Asset Quality Index (simplified: non-cash assets / total assets)
+    aqi_t  = (assets_t  - (cash_t  or 0)) / assets_t  if assets_t  else 0.5
+    aqi_t1 = (assets_t1 - (cash_t1 or 0)) / assets_t1 if assets_t1 else 0.5
+    aqi = aqi_t / aqi_t1 if aqi_t1 != 0 else 1.0
+
+    # LVGI — Leverage Index
+    lev_t  = liab_t  / assets_t  if (liab_t  is not None and assets_t)  else 0.5
+    lev_t1 = liab_t1 / assets_t1 if (liab_t1 is not None and assets_t1) else 0.5
+    lvgi = lev_t / lev_t1 if lev_t1 != 0 else 1.0
+
+    # TATA — Total Accruals to Total Assets
+    tata = ((net_income_t or 0) - (op_cf_t or 0)) / assets_t if assets_t else 0.0
+
+    # DSRI — Days Sales Receivable Index (simplified: revenue growth / asset growth)
+    rev_growth   = rev_t  / rev_t1  if (rev_t  is not None and rev_t1  and rev_t1  != 0) else 1.0
+    asset_growth = assets_t / assets_t1 if (assets_t is not None and assets_t1 and assets_t1 != 0) else 1.0
+    dsri = rev_growth / asset_growth if asset_growth != 0 else 1.0
+
+    # DEPI, SGAI — not available → neutral value
+    depi = 1.0
+    sgai = 1.0
+
+    m = (
+        -4.84
+        + 0.920 * dsri
+        + 0.528 * gmi
+        + 0.404 * aqi
+        + 0.892 * sgi
+        + 0.115 * depi
+        - 0.172 * sgai
+        + 4.679 * tata
+        - 0.327 * lvgi
+    )
+
+    return None if (math.isnan(m) or math.isinf(m)) else round(m, 3)
+
+
 # ── ROIC ──────────────────────────────────────────────────────────────────────
 
 
@@ -793,7 +898,14 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
 
     piotroski  = compute_piotroski(data)
     altman_z_v = compute_altman_z(data)
+    beneish_m_v = compute_beneish_m_score(data)
     roic_v     = compute_roic(data)
+
+    # Beneish flag — potential earnings manipulator
+    beneish_flag_v = beneish_m_v is not None and beneish_m_v > -1.78
+    # Promote OK → VALUE_TRAP when manipulation risk detected
+    if beneish_flag_v and status == "OK":
+        status = "VALUE_TRAP"
 
     # Extended quality metrics — read directly from info dict
     try:
@@ -831,6 +943,8 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         dcf_model_used=dcf_model_used,
         piotroski_score=piotroski,
         altman_z=altman_z_v,
+        beneish_m=beneish_m_v,
+        beneish_flag=beneish_flag_v,
         roic=roic_v,
         wacc_used=None if financial else params_dynamic.discount_rate,
         growth_used=None if financial else params_dynamic.growth_rate,

@@ -1192,3 +1192,159 @@ class TestComputeGrahamNumber:
         # eps = 100e9/16e9, bvps = 200e9/16e9 → should be > 0
         assert result.graham_number > 0
 
+
+# ── compute_beneish_m_score ───────────────────────────────────────────────────
+
+from src.engine import compute_beneish_m_score
+
+
+def _make_beneish_data(
+    rev_t: float = 400e9,
+    rev_t1: float = 360e9,
+    gp_t: float = 160e9,
+    gp_t1: float = 130e9,
+    net_income_t: float = 100e9,
+    op_cf_t: float = 115e9,
+    assets_t: float = 350e9,
+    assets_t1: float = 320e9,
+    cash_t: float = 50e9,
+    cash_t1: float = 45e9,
+    liab_t: float = 250e9,
+    liab_t1: float = 240e9,
+) -> "TickerData":
+    """Two-year TickerData fixture for Beneish M-Score tests."""
+    return TickerData(
+        ticker="BEN",
+        info=_make_info(),
+        financials=[
+            {"period_date": "2023-09-30", "total_revenue": rev_t,
+             "gross_profit": gp_t, "ebit": 120e9, "net_income": net_income_t},
+            {"period_date": "2022-09-30", "total_revenue": rev_t1,
+             "gross_profit": gp_t1, "ebit": 100e9, "net_income": net_income_t * 0.8},
+        ],
+        cashflow=[
+            {"period_date": "2023-09-30", "operating_cashflow": op_cf_t,
+             "free_cash_flow": op_cf_t * 0.9},
+            {"period_date": "2022-09-30", "operating_cashflow": op_cf_t * 0.85,
+             "free_cash_flow": op_cf_t * 0.75},
+        ],
+        balance_sheet=[
+            {"period_date": "2023-09-30", "total_assets": assets_t,
+             "total_liabilities": liab_t, "total_debt": 100e9, "total_cash": cash_t,
+             "stockholders_equity": assets_t - liab_t},
+            {"period_date": "2022-09-30", "total_assets": assets_t1,
+             "total_liabilities": liab_t1, "total_debt": 110e9, "total_cash": cash_t1,
+             "stockholders_equity": assets_t1 - liab_t1},
+        ],
+    )
+
+
+class TestComputeBeneishMScore:
+    def test_beneish_returns_float_with_sufficient_data(self):
+        """2 years of data → returns a finite float."""
+        data = _make_beneish_data()
+        m = compute_beneish_m_score(data)
+        assert m is not None
+        assert isinstance(m, float)
+        assert math.isfinite(m)
+
+    def test_beneish_returns_none_with_one_year(self):
+        """Only 1 year across all statements → None."""
+        data = TickerData(
+            ticker="ONE",
+            info=_make_info(),
+            financials=[{"period_date": "2023-09-30", "total_revenue": 400e9,
+                         "gross_profit": 160e9, "ebit": 120e9, "net_income": 100e9}],
+            cashflow=[{"period_date": "2023-09-30", "operating_cashflow": 115e9,
+                       "free_cash_flow": 100e9}],
+            balance_sheet=[{"period_date": "2023-09-30", "total_assets": 350e9,
+                             "total_liabilities": 250e9, "total_debt": 100e9,
+                             "total_cash": 50e9, "stockholders_equity": 100e9}],
+        )
+        assert compute_beneish_m_score(data) is None
+
+    def test_beneish_returns_none_with_no_data(self):
+        """Empty lists → None."""
+        data = TickerData(
+            ticker="EMP",
+            info=_make_info(),
+            financials=[],
+            cashflow=[],
+            balance_sheet=[],
+        )
+        assert compute_beneish_m_score(data) is None
+
+    def test_beneish_flag_above_threshold(self):
+        """Manipulator scenario (large accruals, high leverage growth) → beneish_flag True."""
+        # Large positive accruals (net_income >> op_cf → TATA big positive),
+        # rising leverage (liab_t/assets_t > liab_t1/assets_t1)
+        data = _make_beneish_data(
+            net_income_t=200e9,  # high net income
+            op_cf_t=20e9,        # but very low operating cash flow → big accruals
+            liab_t=300e9,        # leverage increased
+            liab_t1=200e9,
+        )
+        m = compute_beneish_m_score(data)
+        assert m is not None
+        assert m > -1.78, f"Expected M > -1.78 (manipulator), got {m}"
+
+    def test_beneish_flag_below_threshold(self):
+        """Clean company (positive OCF > net_income, stable leverage) → M well below threshold."""
+        data = _make_beneish_data(
+            net_income_t=80e9,
+            op_cf_t=130e9,   # OCF > net_income → negative accruals → lower M
+            liab_t=240e9,
+            liab_t1=260e9,   # leverage declining
+        )
+        m = compute_beneish_m_score(data)
+        assert m is not None
+        assert m < -1.78, f"Expected M < -1.78 (clean), got {m}"
+
+    def test_beneish_flag_promotes_status_to_value_trap(self):
+        """evaluate() with beneish_flag=True on an otherwise OK company → VALUE_TRAP."""
+        # Use a data fixture where DCF will compute (so status would be OK),
+        # but configure large accruals to trigger beneish_flag
+        info = _make_info()
+        info["sharesOutstanding"] = 16e9
+        data = TickerData(
+            ticker="TRAP",
+            info=info,
+            financials=[
+                {"period_date": "2023-09-30", "total_revenue": 400e9,
+                 "gross_profit": 160e9, "ebit": 120e9, "net_income": 200e9},
+                {"period_date": "2022-09-30", "total_revenue": 360e9,
+                 "gross_profit": 130e9, "ebit": 100e9, "net_income": 160e9},
+            ],
+            cashflow=[
+                {"period_date": "2023-09-30", "operating_cashflow": 10e9,
+                 "free_cash_flow": 90e9},
+                {"period_date": "2022-09-30", "operating_cashflow": 80e9,
+                 "free_cash_flow": 70e9},
+            ],
+            balance_sheet=[
+                {"period_date": "2023-09-30", "total_assets": 350e9,
+                 "total_liabilities": 310e9, "total_debt": 100e9, "total_cash": 50e9,
+                 "stockholders_equity": 40e9},
+                {"period_date": "2022-09-30", "total_assets": 320e9,
+                 "total_liabilities": 240e9, "total_debt": 110e9, "total_cash": 45e9,
+                 "stockholders_equity": 80e9},
+            ],
+        )
+        # Verify beneish_flag fires for this fixture
+        m = compute_beneish_m_score(data)
+        assert m is not None and m > -1.78, f"Fixture should trigger flag, got M={m}"
+
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.beneish_m is not None
+        assert result.beneish_flag is True
+        assert result.status == "VALUE_TRAP", (
+            f"Expected VALUE_TRAP due to beneish_flag, got {result.status}"
+        )
+
+    def test_beneish_clean_company_no_value_trap(self):
+        """Clean cash-generative company → beneish_flag False, no VALUE_TRAP promotion."""
+        data = _make_full_ticker_data()
+        # _make_full_ticker_data has OCF=115e9 > net_income=100e9, so negative accruals
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.beneish_m is not None
+        assert result.beneish_flag is False

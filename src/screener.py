@@ -67,6 +67,9 @@ class ScreenerProfile(BaseModel):
     min_roe: Optional[float] = None                # % threshold e.g. 15.0
     min_gross_margin: Optional[float] = None       # % threshold e.g. 30.0
 
+    # Sub-Task 4 — Beneish M-Score
+    exclude_beneish_risk: bool = False             # exclude M > -1.78 (potential earnings manipulator)
+
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
 
@@ -94,6 +97,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_piotroski=5,
         min_roic=10.0,
         min_roe=15.0,
+        exclude_beneish_risk=True,
     ),
     "high_fcf_yield": ScreenerProfile(
         name="high_fcf_yield",
@@ -116,6 +120,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_piotroski=5,
         min_roic=10.0,
         exclude_altman_distress=True,
+        exclude_beneish_risk=True,
         sort_by="Score",
     ),
 }
@@ -232,6 +237,7 @@ _OUTPUT_COLUMNS = [
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
     "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
     "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%", "Score",
+    "Beneish M", "Manip.Risk",
 ]
 
 # Columns for the Dow 30 ranking report (no MoS filter, ranked by 52w position)
@@ -308,6 +314,10 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         if result.gross_margin * 100 < profile.min_gross_margin:
             return False
 
+    # Beneish — exclude potential earnings manipulators when configured
+    if profile.exclude_beneish_risk and result.beneish_flag:
+        return False
+
     return True
 
 
@@ -367,6 +377,8 @@ def apply_profile(
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Score":            r.composite_score,
+            "Beneish M":        r.beneish_m,
+            "Manip.Risk":       "YES" if r.beneish_flag else "NO",
         })
 
     if not rows:
@@ -511,6 +523,8 @@ def rank_all(
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Score":            r.composite_score,
+            "Beneish M":        r.beneish_m,
+            "Manip.Risk":       "YES" if r.beneish_flag else "NO",
             "Passes":           passes,
             "ProfileFit":       profile_fit,
             "Status":           r.status,

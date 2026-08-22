@@ -636,8 +636,25 @@ def _why_buy(row: dict, profile_key: str | None = None,
     pos_v   = _fv(row.get("52w Position%", ""))
     low_v   = _fv(row.get("52w Low", ""))
     high_v  = _fv(row.get("52w High", ""))
+    beneish_v  = _fv(row.get("Beneish M", ""))
+    manip_risk = str(row.get("Manip.Risk", "")).strip().upper() == "YES"
 
     sentences: list[str] = []
+
+    # ── Beneish M-Score warning (prepended as sentence 0) ────────────────────
+    if manip_risk and beneish_v is not None:
+        sentences.insert(0,
+            f'<span style="background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;'
+            f'padding:2px 8px;color:#dc2626;font-weight:700">&#9888; MANIPULATION RISK</span> '
+            f'The Beneish M-Score of <strong>{beneish_v:.2f}</strong> (threshold: &minus;1.78) '
+            f'suggests elevated probability of earnings manipulation. '
+            f'Treat reported financials with additional skepticism and verify independently.'
+        )
+    elif beneish_v is not None and beneish_v < -2.5:
+        sentences.append(
+            f'The Beneish M-Score of <strong>{beneish_v:.2f}</strong> is well below the &minus;1.78 '
+            f'manipulation threshold, suggesting the reported financials appear credible.'
+        )
 
     # ── Sentence 1: Core MoS + intrinsic value ───────────────────────────────
     if mos_v is not None and mos_v > 0:
