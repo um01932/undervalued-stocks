@@ -418,6 +418,113 @@ def _price_chart_svg(ohlc: list[dict], ticker: str = "") -> str:
     )
 
 
+def _dcf_sensitivity_table(row: dict) -> str:
+    """
+    3×3 DCF sensitivity matrix: WACC (−2%, base, +2%) × Terminal Growth (−1%, base, +1%).
+    Uses ratio scaling: IV_new = IV_base × (WACC_base − g_base) / (WACC_new − g_new)
+    Returns empty string if DCF Avg or Price missing.
+    """
+    iv_base = _fv(row.get("DCF Avg", ""))
+    price_v = _fv(row.get("Price", ""))
+    if iv_base is None or price_v is None or iv_base <= 0 or price_v <= 0:
+        return ""
+
+    wacc_base = 0.10   # 10% — DCFParams default
+    g_base    = 0.025  # 2.5% — DCFParams terminal_growth default
+    spread_base = wacc_base - g_base  # must be > 0
+
+    wacc_deltas = [-0.02, 0.0, +0.02]   # columns: Optimistic / Base / Pessimistic
+    g_deltas    = [+0.01, 0.0, -0.01]   # rows: High growth / Base / Low growth
+
+    wacc_labels = ["WACC 8%", "WACC 10%", "WACC 12%"]
+    g_labels    = ["g = 3.5%", "g = 2.5%", "g = 1.5%"]
+
+    # Count how many of the 9 scenarios still show a discount
+    all_discount = True
+    any_discount = False
+
+    rows_html = ""
+    for i, (gd, g_lbl) in enumerate(zip(g_deltas, g_labels)):
+        cells = ""
+        for j, (wd, w_lbl) in enumerate(zip(wacc_deltas, wacc_labels)):
+            new_wacc = wacc_base + wd
+            new_g    = g_base + gd
+            spread_new = new_wacc - new_g
+            if spread_new <= 0:
+                iv_new = iv_base * 3.0   # degenerate case — very high value
+            else:
+                iv_new = iv_base * (spread_base / spread_new)
+
+            mos_new = ((iv_new - price_v) / iv_new) * 100
+            if mos_new < 0:
+                all_discount = False
+            else:
+                any_discount = True
+
+            # colour by MoS
+            if mos_new >= 40:   cell_c = "#16a34a"; bg = "#f0fdf4"
+            elif mos_new >= 20: cell_c = "#65a30d"; bg = "#f7fee7"
+            elif mos_new >= 0:  cell_c = "#d97706"; bg = "#fffbeb"
+            else:               cell_c = "#dc2626"; bg = "#fef2f2"
+
+            is_base = (wd == 0.0 and gd == 0.0)
+            border = "2px solid #3b82d4" if is_base else "1px solid #e5e7eb"
+            cells += (
+                f'<td style="padding:6px 8px;text-align:center;background:{bg};'
+                f'border:{border};border-radius:4px;min-width:80px">'
+                f'<div style="font-size:13px;font-weight:900;color:{cell_c}">'
+                f'${iv_new:,.0f}</div>'
+                f'<div style="font-size:10px;color:{cell_c};font-weight:700">'
+                f'{"+" if mos_new >= 0 else ""}{mos_new:.0f}% MoS</div>'
+                f'</td>'
+            )
+        rows_html += (
+            f'<tr><td style="padding:6px 8px;font-size:10px;font-weight:700;'
+            f'color:#57606a;white-space:nowrap">{g_lbl}</td>{cells}</tr>'
+        )
+
+    # Header row
+    header_cells = "".join(
+        f'<th style="padding:6px 8px;font-size:10px;font-weight:700;color:#fff;'
+        f'background:#1f2328;text-align:center;min-width:80px">{lbl}</th>'
+        for lbl in wacc_labels
+    )
+    header = (
+        f'<tr><th style="padding:6px 8px;font-size:10px;color:#fff;background:#1f2328"></th>'
+        f'{header_cells}</tr>'
+    )
+
+    if all_discount:
+        badge = ('<span style="background:#dcfce7;color:#15803d;font-size:11px;'
+                 'font-weight:700;padding:3px 10px;border-radius:20px;margin-left:10px">'
+                 '✓ All 9 scenarios show discount</span>')
+    elif any_discount:
+        badge = ('<span style="background:#fffbeb;color:#92400e;font-size:11px;'
+                 'font-weight:700;padding:3px 10px;border-radius:20px;margin-left:10px">'
+                 '⚠ Discount in most scenarios</span>')
+    else:
+        badge = ('<span style="background:#fef2f2;color:#991b1b;font-size:11px;'
+                 'font-weight:700;padding:3px 10px;border-radius:20px;margin-left:10px">'
+                 '✗ Overvalued in all scenarios</span>')
+
+    return f"""
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                  letter-spacing:.06em;margin-bottom:8px">
+        DCF Sensitivity Analysis — Intrinsic Value &amp; Margin of Safety
+        {badge}
+        <span style="font-weight:400;color:#c0c4cb;margin-left:6px">
+          (base case highlighted in blue border)</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="border-collapse:separate;border-spacing:4px;font-size:12px">
+          <thead>{header}</thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </div>"""
+
+
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
     """4 metric cards: MoS, Piotroski, ROIC, ROE + composite/overall score badges."""
     def _norm(v, lo, hi):
@@ -744,6 +851,7 @@ def _why_buy(row: dict, profile_key: str | None = None,
     cards_html = _score_cards(row, overall_score)
     bar_html   = _52w_bar(price_v, low_v, high_v)
     chart_html = _price_chart_svg(ohlc or [], ticker) if ohlc else ""
+    sens_html  = _dcf_sensitivity_table(row)
 
     fit_v = _fv(row.get("ProfileFit", ""))
     sc_v  = overall_score if overall_score is not None else fit_v
@@ -764,6 +872,8 @@ def _why_buy(row: dict, profile_key: str | None = None,
     panel_html = f"""
         <!-- Score cards -->
         <div style="margin-bottom:14px">{cards_html}</div>
+        <!-- DCF Sensitivity -->
+        {f'<div style="margin-bottom:14px">{sens_html}</div>' if sens_html else ""}
         {bar_section}
         {chart_section}
         <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
