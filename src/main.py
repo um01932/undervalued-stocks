@@ -134,7 +134,7 @@ def interactive_wizard() -> argparse.Namespace:
     console.rule("[bold blue]Stock Screener — Interactive Setup[/bold blue]")
     console.print()
 
-    universe    = _prompt("Universe (sp500/nasdaq100/dow30/world/custom)", "world")
+    universe    = _prompt("Universe (sp500/nasdaq100/dow30/russell2000/eurostoxx50/bet/world/custom)", "world")
     csv_path    = None
     if universe == "custom":
         csv_path = _prompt("Path to ticker CSV", "data/custom_tickers.csv")
