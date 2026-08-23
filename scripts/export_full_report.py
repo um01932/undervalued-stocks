@@ -2147,13 +2147,15 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         pos_v   = _fv(row.get("52w Position%",""))
         pc      = _pos_colour(pos_v) if pos_v is not None else "#8d96a0"
 
-        # conviction level: 4 profiles = gold, 3 = strong, 2 = moderate
-        if n_prof == 4:
-            conv_colour, conv_label = "#d97706", "GOLD — 4/4 profiles"
-        elif n_prof == 3:
-            conv_colour, conv_label = "#16a34a", "HIGH — 3/4 profiles"
+        # conviction level: dynamic based on how many profiles have data loaded
+        n_total = len([k for k, v in all_profile_rows.items() if v])
+        n_total = max(n_total, 2)   # safety floor
+        if n_prof >= n_total:
+            conv_colour, conv_label = "#d97706", f"GOLD — {n_prof}/{n_total} profiles"
+        elif n_prof >= n_total - 1:
+            conv_colour, conv_label = "#16a34a", f"HIGH — {n_prof}/{n_total} profiles"
         else:
-            conv_colour, conv_label = "#3b82d4", "MODERATE — 2/4 profiles"
+            conv_colour, conv_label = "#3b82d4", f"MODERATE — {n_prof}/{n_total} profiles"
 
         # Profile badges
         badge_html = " ".join(
@@ -2294,6 +2296,7 @@ def _build_overall_top(
         "buffett_quality": 1.20,
         "quality_value":   1.10,
         "high_fcf_yield":  1.00,
+        "dividend_growth": 1.05,
     }
 
     ticker_raw_fits: dict[str, dict[str, float]] = {}   # tkr -> {profile: raw fit}
@@ -2510,6 +2513,16 @@ def build_full_report(out_path: Path) -> None:
     total_passed = sum(n_pass_per_profile.values())
     total_ranked = sum(len(rows) for rows in all_profile_rows.values())
 
+    # Dynamic universe label — derived from unique tickers across all loaded CSVs
+    total_unique_tickers = len({
+        r.get("Ticker", "").strip()
+        for rows in all_profile_rows.values()
+        for r in rows
+        if r.get("Ticker", "").strip()
+    })
+    n_active_profiles = sum(1 for rows in all_profile_rows.values() if rows)
+    universe_label = f"Multi-Universe ({total_unique_tickers} tickers analyzed)"
+
     # ── Fetch 1-year OHLCV for Why-Buy charts ─────────────────────────────────
     # Collect unique tickers that will appear in Why-Buy panels (top-N per profile
     # + top overall). Limit to top 15 per profile sorted by ProfileFit to keep
@@ -2675,7 +2688,7 @@ def build_full_report(out_path: Path) -> None:
     toc_links += '<a href="#convictions">&#9733; Top Convictions</a>'
     toc_links += "".join(
         f'<a href="#{k}">{_PROFILE_META[k]["label"]}</a>'
-        for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value")
+        for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth")
     )
     toc_links += f'<a href="#magic_formula">{_PROFILE_META["magic_formula"]["label"]}</a>'
     if dow_rows:   toc_links += '<a href="#dow30">Dow 30 Ranking</a>'
@@ -2691,7 +2704,7 @@ def build_full_report(out_path: Path) -> None:
           <span class="sec-arrow">&#9654;</span>
           <span class="sec-badge" style="background:#57606a18;color:#57606a">&#9881;</span>
           <span class="sec-title">How the Engine Works &mdash; Methodology</span>
-          <span class="sec-meta">6 sections &nbsp;·&nbsp; data pipeline, valuation models, 4 screens, backtest</span>
+          <span class="sec-meta">8 sections &nbsp;·&nbsp; data pipeline, valuation models, 5 screens + magic formula, quality scores, backtest</span>
         </div>
       </summary>
       <div class="sec-body">
@@ -2743,10 +2756,14 @@ def build_full_report(out_path: Path) -> None:
         </summary>
         <div class="mdet-body">
           <p style="margin-bottom:12px;line-height:1.7">
-            The S&amp;P 500 universe (503 tickers) is fetched live by scraping Wikipedia on every run.
+            8 universes are supported: <strong>S&amp;P 500, NASDAQ-100, Dow Jones 30, Russell 2000,
+            Euro Stoxx 50, BET Romania, World (global_tickers.csv), Custom CSV</strong>.
+            The ticker list is fetched live by scraping Wikipedia (with hardcoded fallbacks).
+            Running <code>python src/main.py</code> without <code>--profile</code> processes
+            <strong>all 5 screener profiles + Magic Formula in a single run</strong> — data fetched once, reused for all profiles.
             Financial data is pulled from <strong>Yahoo Finance via <code>yfinance</code></strong>:
             current price, balance sheet, income statement, cash flow statement (3&ndash;5 years of history),
-            beta, dividends, shares outstanding, and 52-week range.
+            beta, ROE, ROA, gross/operating margin, dividends, SBC, shares outstanding, and 52-week range.
             Every ticker goes through a <strong>retry loop with exponential backoff</strong> (3 attempts, ~1s delay doubling).
             Fetching runs concurrently via <code>ThreadPoolExecutor</code> with a configurable number of workers.
           </p>
@@ -2801,6 +2818,15 @@ def build_full_report(out_path: Path) -> None:
                 Acts as a cross-check on GGM &mdash; if both agree, conviction is higher.
               </td>
               <td>All non-financial sectors where EBITDA &gt; 0</td>
+            </tr>
+            <tr>
+              <td><strong>Graham Number</strong></td>
+              <td>
+                &radic;(22.5 &times; EPS &times; Book Value per share). A conservative upper bound
+                on fair value derived purely from accounting data — independent of DCF assumptions.
+                Provides a third cross-check alongside GGM and Exit Multiple.
+              </td>
+              <td>All sectors where EPS &gt; 0 and BV &gt; 0</td>
             </tr>
             <tr>
               <td><strong>DDM &mdash; Dividend Discount</strong></td>
@@ -2888,6 +2914,52 @@ def build_full_report(out_path: Path) -> None:
                 <span class="thresh neutral">10&ndash;14% good</span>
                 <span class="thresh fail">&lt; 10% weak</span>
               </td>
+            </tr>
+            <tr>
+              <td><strong>Beneish M-Score</strong></td>
+              <td>
+                8-index earnings-manipulation detector:
+                DSRI (receivables), GMI (gross margin), AQI (asset quality), SGI (sales growth),
+                DEPI (depreciation — set to neutral 1.0), SGAI (SG&amp;A — neutral 1.0),
+                LVGI (leverage), TATA (accruals).
+                <em>M = &minus;4.84 + 0.92&times;DSRI + 0.528&times;GMI + 0.404&times;AQI + 0.892&times;SGI
+                + 0.115&times;DEPI &minus; 0.172&times;SGAI + 4.679&times;TATA &minus; 0.327&times;LVGI</em>
+              </td>
+              <td>
+                <span class="thresh fail">M &gt; &minus;1.78 = MANIPULATION_RISK flag</span><br>
+                <span class="thresh neutral">M &le; &minus;1.78 = likely clean</span>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>SBC / Share Dilution</strong></td>
+              <td>
+                Stock-Based Compensation as % of Free Cash Flow (<code>SBC/FCF%</code>).
+                SBC-adjusted FCF = FCF &minus; SBC (cash-equivalent real FCF).
+                Share dilution % = YoY change in diluted shares outstanding.
+                High SBC &gt; 30% of FCF indicates earnings may be partially illusory.
+              </td>
+              <td>
+                <span class="thresh fail">SBC/FCF &gt; 30% = dilution alert</span><br>
+                <span class="thresh neutral">Shares dilution &gt; 3%/yr = caution</span>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Sector-Relative Percentiles</strong></td>
+              <td>
+                P/E, P/FCF and EV/EBITDA of each company are ranked within its sector.
+                A company in the 20th percentile is cheaper than 80% of sector peers,
+                even if its absolute multiple looks elevated compared to the full index.
+              </td>
+              <td>Shown in Why-Buy panel; used in Top Overall cross-profile scoring</td>
+            </tr>
+            <tr>
+              <td><strong>Score History Sparklines</strong></td>
+              <td>
+                Composite Score (0&ndash;100) is persisted in DuckDB <code>score_history</code>
+                table on every run. The Why-Buy panel shows an SVG sparkline of the score
+                evolution across runs — useful for identifying improving or deteriorating companies.
+              </td>
+              <td>DuckDB append-only; displayed inline in HTML report</td>
             </tr>
             <tr>
               <td><strong>Composite Score (0&ndash;100)</strong></td>
@@ -3054,6 +3126,78 @@ def build_full_report(out_path: Path) -> None:
       </details>
 
       <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4E. SCREEN: DIVIDEND GROWTH                                        -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#0891b218;color:#0891b2">DIV</span>
+          4E &nbsp;&mdash;&nbsp; Screen: Dividend Growth &mdash; sustainable income investing
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> Income-focused. Targets companies that pay a meaningful dividend,
+            cover it comfortably with free cash flow, carry low debt, and show no signs of earnings manipulation.
+            The FCF payout ratio is the key metric &mdash; it confirms dividends are funded by real cash, not debt.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>Threshold</th><th>Rationale</th></tr>
+            <tr><td><strong>Dividend Yield</strong></td><td><span class="thresh pass">&ge; 2.5%</span></td><td>Minimum meaningful income yield. Screens out nominal dividend payers.</td></tr>
+            <tr><td><strong>FCF Payout Ratio</strong></td><td><span class="thresh pass">&le; 70%</span></td><td>Dividend covered by real free cash flow with a 30% buffer — sustainable.</td></tr>
+            <tr><td><strong>Net Debt / EBITDA</strong></td><td><span class="thresh pass">&le; 2.0&times;</span></td><td>Conservative leverage — overleveraged companies cut dividends first.</td></tr>
+            <tr><td><strong>Piotroski F-Score</strong></td><td><span class="thresh pass">&ge; 5</span></td><td>Fundamentals improving, not deteriorating. Reduces dividend-cut risk.</td></tr>
+            <tr><td><strong>Beneish M-Score flag</strong></td><td><span class="thresh fail">Exclude MANIPULATION_RISK</span></td><td>Earnings manipulation is a leading indicator of dividend cuts and restatements.</td></tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>Typical pass rate:</strong> 10&ndash;30 companies from S&amp;P 500.
+            <strong>Note:</strong> Dividend yield data from Yahoo Finance may lag ex-dividend dates by 1&ndash;2 days.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <!-- 4F. MAGIC FORMULA (GREENBLATT)                                     -->
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
+      <details class="mdet">
+        <summary>
+          <span class="marrow">&#9654;</span>
+          <span class="mdet-icon" style="background:#be185d18;color:#be185d">MF</span>
+          4F &nbsp;&mdash;&nbsp; Magic Formula (Greenblatt) &mdash; cheap &amp; good simultaneously
+        </summary>
+        <div class="mdet-body">
+          <p style="margin-bottom:14px;line-height:1.7">
+            <strong>Philosophy:</strong> Joel Greenblatt&rsquo;s <em>The Little Book That Beats the Market</em>
+            (2005). Rank all companies by two criteria simultaneously: <strong>Earnings Yield (E/P)</strong>
+            (cheap) and <strong>ROIC</strong> (good). Add the two ranks. The company with the lowest
+            combined rank is the best combination of cheap <em>and</em> high-quality.
+          </p>
+          <table>
+            <tr><th style="width:28%">Criterion</th><th>How it works</th></tr>
+            <tr>
+              <td><strong>Earnings Yield rank</strong></td>
+              <td>EY = 1 / P/E (E/P proxy). All eligible companies ranked descending — rank #1 = highest earnings yield = cheapest.</td>
+            </tr>
+            <tr>
+              <td><strong>ROIC rank</strong></td>
+              <td>All eligible companies ranked descending by ROIC — rank #1 = highest ROIC = best quality.</td>
+            </tr>
+            <tr>
+              <td><strong>Magic Score</strong></td>
+              <td>EY_rank + ROIC_rank. Lower = better. Top 30 displayed.</td>
+            </tr>
+            <tr>
+              <td><strong>Excluded sectors</strong></td>
+              <td>Financials, Financial Services, Utilities, Real Estate (valuation metrics not comparable to operating companies).</td>
+            </tr>
+          </table>
+          <p style="margin-top:12px;color:#6b7280;font-size:12px">
+            <strong>No strict PASS/FAIL:</strong> Magic Formula is a pure ranking — every non-excluded company with P/E &gt; 0 and valid ROIC is ranked.
+            Typical eligible pool: 250&ndash;350 companies from S&amp;P 500 after sector exclusions.
+          </p>
+        </div>
+      </details>
+
+      <!-- ═══════════════════════════════════════════════════════════════════ -->
       <!-- 5. PROFILEFIT & RANKING                                            -->
       <!-- ═══════════════════════════════════════════════════════════════════ -->
       <details class="mdet">
@@ -3094,9 +3238,11 @@ def build_full_report(out_path: Path) -> None:
             <code>INSUFFICIENT_DATA</code> = fewer than 2 financial data points available; always placed last.
           </p>
           <p style="margin-top:10px;color:#6b7280;font-size:12px">
-            The <strong>Top Overall</strong> section at the top of the report aggregates ProfileFit scores
-            across all four profiles using a weighted average (Deep Value &times;1.3, Buffett Quality &times;1.2,
-            Quality Value &times;1.1, FCF Yield &times;1.0) to produce a single cross-profile ranking.
+            The <strong>Top Overall</strong> section aggregates ProfileFit scores across all 5 profiles
+            using a weighted average (Deep Value &times;1.3, Buffett Quality &times;1.2,
+            Quality Value &times;1.1, Dividend Growth &times;1.05, FCF Yield &times;1.0).
+            <strong>Top Convictions</strong> shows companies that pass 2+ profiles strictly —
+            with GOLD/HIGH/MODERATE conviction levels scaled dynamically to the number of profiles with data.
           </p>
         </div>
       </details>
@@ -3158,15 +3304,15 @@ def build_full_report(out_path: Path) -> None:
 
   <div class="report-header">
     <div style="font-size:11px;color:#9ca3af;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px">
-      Stock Screener &amp; Intrinsic Value Engine — v2 Full Report
+      Stock Screener &amp; Intrinsic Value Engine — v3 Full Report
     </div>
     <h1>Executive Summary Report</h1>
-    <div class="subtitle">S&amp;P 500 Universe &nbsp;·&nbsp; 4 Screener Profiles &nbsp;·&nbsp;
-      Dow Jones 30 Ranking &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500</div>
+    <div class="subtitle">{universe_label} &nbsp;·&nbsp; {n_active_profiles} Screener Profiles &nbsp;·&nbsp;
+      Magic Formula &nbsp;·&nbsp; Dow Jones 30 &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500</div>
     <div class="header-meta">
       <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">{now}</div></div>
-      <div class="hm-item"><div class="hm-label">Universe</div><div class="hm-value">S&amp;P 500 (503 tickers)</div></div>
-      <div class="hm-item"><div class="hm-label">Strict Passed</div><div class="hm-value">{total_passed} (across 4 profiles)</div></div>
+      <div class="hm-item"><div class="hm-label">Universe</div><div class="hm-value">{universe_label}</div></div>
+      <div class="hm-item"><div class="hm-label">Strict Passed</div><div class="hm-value">{total_passed} (across {n_active_profiles} profiles)</div></div>
       <div class="hm-item"><div class="hm-label">Ranked Total</div><div class="hm-value">{total_ranked} rows</div></div>
       <div class="hm-item"><div class="hm-label">Benchmark</div><div class="hm-value">^GSPC (S&amp;P 500)</div></div>
       <div class="hm-item"><div class="hm-label">Data Source</div><div class="hm-value">Yahoo Finance / yfinance</div></div>

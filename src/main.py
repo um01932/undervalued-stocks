@@ -70,8 +70,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profile",
         choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"],
-        default="deep_value",
-        help="Screener preset to apply.",
+        default=None,
+        help=(
+            "Screener preset to apply. "
+            "If omitted, ALL 5 profiles are run sequentially on the same fetched data "
+            "(deep_value, buffett_quality, high_fcf_yield, quality_value, dividend_growth)."
+        ),
     )
     parser.add_argument(
         "--workers",
@@ -139,7 +143,11 @@ def interactive_wizard() -> argparse.Namespace:
     if universe == "custom":
         csv_path = _prompt("Path to ticker CSV", "data/custom_tickers.csv")
 
-    profile     = _prompt("Screener profile (deep_value/buffett_quality/high_fcf_yield/quality_value/dividend_growth)", "deep_value")
+    profile_raw = _prompt(
+        "Screener profile (deep_value/buffett_quality/high_fcf_yield/quality_value/dividend_growth/all)",
+        "all",
+    )
+    profile     = None if profile_raw.strip().lower() in ("all", "") else profile_raw.strip()
     workers     = int(_prompt("Parallel fetch threads", "8"))
     rps         = float(_prompt("Max requests per second", "2.0"))
     export_fmt  = _prompt("Export format (csv/excel/both/none)", "csv")
@@ -157,7 +165,7 @@ def interactive_wizard() -> argparse.Namespace:
     return argparse.Namespace(
         universe=universe,
         csv_path=csv_path,
-        profile=profile,
+        profile=profile,  # None = all profiles
         workers=workers,
         rps=rps,
         export=export_fmt,
@@ -561,69 +569,92 @@ def run(args: argparse.Namespace) -> None:
         profile_name = "dow30_ranking"
         df = apply_dow30_ranking(valuation_results)
         console.print(f"[bold]Mode:[/bold] Dow Jones 30 — ranked by 52-week position\n")
-    else:
-        profiles = load_profiles(str(_PROFILES_YAML))
-        profile_name = args.profile
-        profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
-        console.print(f"[bold]Profile:[/bold] {profile_name}\n")
-        # rank_all: returns ALL companies with ProfileFit score (no exclusions)
-        df = rank_all(valuation_results, profile)
-        # df_filtered: only companies that pass strict thresholds (for display summary)
-        df_filtered = apply_profile(valuation_results, profile)
 
-    # ── 5. Display ────────────────────────────────────────────────────────────
-    if is_dow30_mode:
+        # ── 5. Display
         render_table(df)
         console.print(f"\n[dim]{len(df)} Dow Jones companies ranked (lowest 52w position first).[/dim]")
         console.print("[dim]Interpretation: rank #1 = trading closest to 52-week low = most upside potential.[/dim]")
+
+        # ── 6. Export
+        written = export_results(df, args.export, profile_name)
+        failed_path = _save_failed(failed, profile_name)
+        for path in written:
+            console.print(f"[green]Saved:[/green] {path}")
+        if failed_path:
+            console.print(f"[dim]Failed tickers logged to:[/dim] {failed_path}")
+        return
+
+    # ── Multi-profile or single-profile screening ─────────────────────────────
+    profiles = load_profiles(str(_PROFILES_YAML))
+
+    _ALL_PROFILE_KEYS = [
+        "deep_value", "buffett_quality", "high_fcf_yield",
+        "quality_value", "dividend_growth",
+    ]
+
+    # Determine which profiles to run
+    selected_profile = getattr(args, "profile", None)
+    if selected_profile:
+        profiles_to_run = [selected_profile]
     else:
-        # Show top 10 in CLI (full ranked list exported to CSV)
-        render_table(df_filtered)
-        passes = df["Passes"].sum() if "Passes" in df.columns else 0
+        profiles_to_run = _ALL_PROFILE_KEYS
         console.print(
-            f"\n[dim]{passes} companies pass strict '{profile_name}' filter. "
-            f"Full ranked list of {len(df)} companies exported to CSV.[/dim]"
+            f"[bold]Mode:[/bold] All {len(profiles_to_run)} profiles "
+            f"({', '.join(profiles_to_run)})\n"
         )
 
-    # ── 6. Export ─────────────────────────────────────────────────────────────
-    # Export the FULL ranked list (all companies) not just the filtered ones
-    export_df = df if not is_dow30_mode else df
-    written = export_results(export_df, args.export, profile_name)
-    failed_path = _save_failed(failed, profile_name)
-
-    for path in written:
-        console.print(f"[green]Saved:[/green] {path}")
+    run_date = datetime.now().strftime("%Y%m%d")
+    failed_path = _save_failed(failed, profiles_to_run[0])
     if failed_path:
         console.print(f"[dim]Failed tickers logged to:[/dim] {failed_path}")
 
-    # ── Score history ─────────────────────────────────────────────────────────
-    if not is_dow30_mode and args.export in ("csv", "both") and not export_df.empty:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_date = ts[:8]  # YYYYMMDD
-        profile_key = profile_name
-        history_rows = []
-        for _, row in export_df.iterrows():
-            history_rows.append({
-                "ticker":          row.get("Ticker", ""),
-                "run_date":        run_date,
-                "profile":         profile_key,
-                "composite_score": row.get("Score"),
-                "mos_pct":         row.get("MoS%"),
-                "profile_fit":     row.get("ProfileFit"),
-            })
-        if history_rows:
-            cache.append_score_history(history_rows)
+    for profile_name in profiles_to_run:
+        profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
+        console.print(f"\n[bold cyan]── Profile: {profile_name} ──[/bold cyan]")
 
-    # ── Magic Formula ─────────────────────────────────────────────────────────
-    if not is_dow30_mode and args.export in ("csv", "both"):
+        # rank_all: ALL companies with ProfileFit score; apply_profile: strict-pass only
+        df          = rank_all(valuation_results, profile)
+        df_filtered = apply_profile(valuation_results, profile)
+
+        # Display (only for single-profile runs to avoid console clutter)
+        if selected_profile:
+            render_table(df_filtered)
+        passes = df["Passes"].sum() if "Passes" in df.columns else 0
+        console.print(
+            f"[dim]{passes} PASS · {len(df)} ranked · profile=[cyan]{profile_name}[/cyan][/dim]"
+        )
+
+        # Export
+        written = export_results(df, args.export, profile_name)
+        for path in written:
+            console.print(f"[green]Saved:[/green] {path.name}")
+
+        # Score history
+        if args.export in ("csv", "both") and not df.empty:
+            history_rows = []
+            for _, row in df.iterrows():
+                history_rows.append({
+                    "ticker":          row.get("Ticker", ""),
+                    "run_date":        run_date,
+                    "profile":         profile_name,
+                    "composite_score": row.get("Score"),
+                    "mos_pct":         row.get("MoS%"),
+                    "profile_fit":     row.get("ProfileFit"),
+                })
+            if history_rows:
+                cache.append_score_history(history_rows)
+
+    # ── Magic Formula (once per run, after all profiles) ─────────────────────
+    if args.export in ("csv", "both"):
         mf_df = apply_magic_formula(valuation_results)
         if not mf_df.empty:
-            reports_dir = _REPORTS_DIR
-            reports_dir.mkdir(parents=True, exist_ok=True)
+            _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            mf_path = reports_dir / f"{ts}_magic_formula.csv"
+            mf_path = _REPORTS_DIR / f"{ts}_magic_formula.csv"
             mf_df.to_csv(mf_path, index=False)
-            console.print(f"[green]Magic Formula:[/green] {len(mf_df)} companies → {mf_path.name}")
+            console.print(f"\n[green]Magic Formula:[/green] {len(mf_df)} companies → {mf_path.name}")
+        else:
+            console.print("\n[dim]Magic Formula: no eligible companies (check ROIC/PE data).[/dim]")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
