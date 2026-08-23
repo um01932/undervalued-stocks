@@ -42,6 +42,7 @@ __all__ = [
     "get_bet_tickers",
     "get_world_tickers",
     "get_tickers_from_csv",
+    "get_multi_universe",
     "get_universe",
 ]
 
@@ -106,6 +107,7 @@ class UniverseSource(StrEnum):
     BET         = "bet"
     WORLD       = "world"
     CUSTOM      = "custom"
+    MULTI       = "multi"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -409,12 +411,46 @@ def get_universe(
             return get_bet_tickers()
         case UniverseSource.WORLD:
             return get_world_tickers()
+        case UniverseSource.MULTI:
+            return get_multi_universe()
         case UniverseSource.CUSTOM:
             if not csv_path:
                 raise ValueError("csv_path must be provided when source is CUSTOM.")
             return get_tickers_from_csv(csv_path)
         case _:  # pragma: no cover
             raise ValueError(f"Unknown universe source: {source!r}")
+
+
+def get_multi_universe() -> list[str]:
+    """
+    Combine S&P 500 + NASDAQ-100 + Russell 2000 + Euro Stoxx 50 + BET Romania
+    into a single deduplicated, normalised ticker list.
+
+    Each sub-universe is fetched independently (with fallbacks on failure).
+    The result is the union of all tickers, sorted and deduplicated.
+
+    Returns:
+        Sorted, normalised, deduplicated list of ticker symbols.
+    """
+    combined: list[str] = []
+    sources = [
+        ("S&P 500",      get_sp500_tickers),
+        ("NASDAQ-100",   get_nasdaq100_tickers),
+        ("Russell 2000", get_russell2000_tickers),
+        ("Euro Stoxx 50", get_eurostoxx50_tickers),
+        ("BET Romania",  get_bet_tickers),
+    ]
+    for name, fn in sources:
+        try:
+            tickers = fn()
+            combined.extend(tickers)
+            logger.info("Multi-universe: added %d tickers from %s.", len(tickers), name)
+        except Exception as exc:
+            logger.warning("Multi-universe: failed to load %s (%s) — skipping.", name, exc)
+
+    result = _normalise(combined)
+    logger.info("Multi-universe total: %d unique tickers.", len(result))
+    return result
 
 
 # ── CLI refresh helper ────────────────────────────────────────────────────────

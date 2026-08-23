@@ -21,6 +21,7 @@ from src.universe import (
     _normalise,
     get_bet_tickers,
     get_eurostoxx50_tickers,
+    get_multi_universe,
     get_nasdaq100_tickers,
     get_russell2000_tickers,
     get_sp500_tickers,
@@ -353,3 +354,62 @@ class TestGetBetTickers:
         result = get_universe(UniverseSource.BET)
         mock_bet.assert_called_once()
         assert "BRD-RO" in result
+
+
+# ── get_multi_universe ────────────────────────────────────────────────────────
+
+class TestGetMultiUniverse:
+    """Tests for get_multi_universe — combines all major universes."""
+
+    @patch("src.universe.get_sp500_tickers", return_value=["AAPL", "MSFT"])
+    @patch("src.universe.get_nasdaq100_tickers", return_value=["NVDA", "MSFT"])
+    @patch("src.universe.get_russell2000_tickers", return_value=["BOOT", "CALM"])
+    @patch("src.universe.get_eurostoxx50_tickers", return_value=["ASML-AS"])
+    @patch("src.universe.get_bet_tickers", return_value=["BRD-RO"])
+    def test_combines_all_sources(self, mock_bet, mock_es50, mock_r2k, mock_nq, mock_sp):
+        result = get_multi_universe()
+        # All unique tickers from all sources should be present
+        assert "AAPL" in result
+        assert "NVDA" in result
+        assert "BOOT" in result
+        assert "ASML-AS" in result
+        assert "BRD-RO" in result
+
+    @patch("src.universe.get_sp500_tickers", return_value=["AAPL", "MSFT"])
+    @patch("src.universe.get_nasdaq100_tickers", return_value=["NVDA", "MSFT"])
+    @patch("src.universe.get_russell2000_tickers", return_value=["BOOT"])
+    @patch("src.universe.get_eurostoxx50_tickers", return_value=["TTE-PA"])
+    @patch("src.universe.get_bet_tickers", return_value=["TLV-RO"])
+    def test_deduplicates(self, mock_bet, mock_es50, mock_r2k, mock_nq, mock_sp):
+        result = get_multi_universe()
+        # MSFT appears in both sp500 and nasdaq100 — should appear only once
+        assert result.count("MSFT") == 1
+
+    @patch("src.universe.get_sp500_tickers", return_value=["AAPL"])
+    @patch("src.universe.get_nasdaq100_tickers", return_value=["NVDA"])
+    @patch("src.universe.get_russell2000_tickers", return_value=["BOOT"])
+    @patch("src.universe.get_eurostoxx50_tickers", return_value=["TTE-PA"])
+    @patch("src.universe.get_bet_tickers", return_value=["TLV-RO"])
+    def test_result_is_sorted(self, mock_bet, mock_es50, mock_r2k, mock_nq, mock_sp):
+        result = get_multi_universe()
+        assert result == sorted(result)
+
+    @patch("src.universe.get_sp500_tickers", side_effect=Exception("network"))
+    @patch("src.universe.get_nasdaq100_tickers", return_value=["NVDA"])
+    @patch("src.universe.get_russell2000_tickers", return_value=["BOOT"])
+    @patch("src.universe.get_eurostoxx50_tickers", return_value=["TTE-PA"])
+    @patch("src.universe.get_bet_tickers", return_value=["TLV-RO"])
+    def test_tolerates_partial_failure(self, mock_bet, mock_es50, mock_r2k, mock_nq, mock_sp):
+        """If one source fails, the rest still contribute."""
+        result = get_multi_universe()
+        assert "NVDA" in result
+        assert "BOOT" in result
+        # sp500 failed, AAPL not present
+        assert "AAPL" not in result
+
+    @patch("src.universe.get_multi_universe", return_value=["AAPL", "ASML-AS", "BRD-RO"])
+    def test_get_universe_multi(self, mock_multi):
+        result = get_universe(UniverseSource.MULTI)
+        mock_multi.assert_called_once()
+        assert "AAPL" in result
+        assert "ASML-AS" in result

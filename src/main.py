@@ -57,9 +57,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--universe",
-        choices=["sp500", "nasdaq100", "dow30", "russell2000", "eurostoxx50", "bet", "world", "custom"],
-        default="world",
-        help="Stock universe to screen.",
+        choices=["sp500", "nasdaq100", "dow30", "russell2000", "eurostoxx50", "bet", "world", "custom", "multi"],
+        default="sp500",
+        help=(
+            "Stock universe to screen. "
+            "Use 'multi' to combine S&P 500 + NASDAQ-100 + Russell 2000 + Euro Stoxx 50 + BET Romania "
+            "into a single deduped run (~700+ unique tickers)."
+        ),
     )
     parser.add_argument(
         "--csv-path",
@@ -138,7 +142,7 @@ def interactive_wizard() -> argparse.Namespace:
     console.rule("[bold blue]Stock Screener — Interactive Setup[/bold blue]")
     console.print()
 
-    universe    = _prompt("Universe (sp500/nasdaq100/dow30/russell2000/eurostoxx50/bet/world/custom)", "world")
+    universe    = _prompt("Universe (sp500/nasdaq100/dow30/russell2000/eurostoxx50/bet/world/custom/multi)", "multi")
     csv_path    = None
     if universe == "custom":
         csv_path = _prompt("Path to ticker CSV", "data/custom_tickers.csv")
