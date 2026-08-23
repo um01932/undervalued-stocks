@@ -51644,7 +51644,7 @@ function renderWatchlist() {
       + '<td class="r">' + (d.piotroski != null ? d.piotroski+'/9' : '—') + '</td>'
       + '<td class="r">' + (d.fit != null ? d.fit.toFixed(0) : '—') + '</td>'
       + '<td><button class="star-btn starred" data-ticker="' + d.ticker + '" data-row-json=""'
-      + ' onclick="removeFromWatchlist('' + d.ticker + '')">⭐</button></td>'
+      + ' onclick="removeFromWatchlist(this.dataset.ticker)">⭐</button></td>'
       + '</tr>';
   });
   html += '</tbody></table>';
