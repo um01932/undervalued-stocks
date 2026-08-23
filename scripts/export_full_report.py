@@ -1232,6 +1232,60 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
 .footer { text-align:center; font-size:11px; color:#8d96a0;
           border-top:1px solid #e5e7eb; padding-top:20px; margin-top:40px; }
 
+/* ── Live Filter Bar (ST12) ─────────────────────────────────────────────────── */
+.filter-bar {
+  display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+  padding:12px 16px; background:#f7f8fa; border:1px solid #e5e7eb;
+  border-radius:8px; margin-bottom:14px;
+}
+.filter-bar label { font-size:11px; font-weight:700; color:#57606a;
+                    text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.filter-bar select, .filter-bar input[type=number] {
+  padding:4px 8px; border:1px solid #d1d5db; border-radius:6px;
+  font-size:12px; background:#fff; color:#1f2328; height:28px;
+  min-width:80px; max-width:110px;
+}
+.filter-bar select { min-width:120px; }
+.filter-bar .filter-reset {
+  padding:4px 12px; background:#e5e7eb; border:1px solid #d1d5db;
+  border-radius:6px; font-size:12px; font-weight:700; color:#374151;
+  cursor:pointer; height:28px; white-space:nowrap;
+}
+.filter-bar .filter-reset:hover { background:#d1d5db; }
+.filter-count { font-size:11px; color:#6b7280; margin-left:auto; white-space:nowrap; }
+
+/* ── Watchlist (ST13) ────────────────────────────────────────────────────────── */
+.watchlist-section {
+  background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+  padding:20px 28px; margin-bottom:24px;
+}
+.watchlist-header {
+  display:flex; align-items:center; gap:12px; margin-bottom:14px;
+}
+.watchlist-title { font-size:16px; font-weight:800; color:#1f2328; }
+.watchlist-subtitle { font-size:12px; color:#8d96a0; margin-left:auto; }
+.watchlist-empty { font-size:13px; color:#9ca3af; padding:12px 0; }
+.watchlist-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.watchlist-tbl th { background:#f7f8fa; color:#57606a; padding:7px 10px;
+                    font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+                    text-align:left; border-bottom:1px solid #e5e7eb; }
+.watchlist-tbl th.r { text-align:right; }
+.watchlist-tbl td { padding:7px 10px; border-bottom:1px solid #f0f2f5; vertical-align:middle; }
+.watchlist-tbl tr:last-child td { border-bottom:none; }
+.watchlist-tbl td.r { text-align:right; }
+.wl-export-btn {
+  padding:5px 14px; background:#1f2328; color:#fff; border:none;
+  border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;
+}
+.wl-export-btn:hover { background:#374151; }
+.star-btn {
+  background:none; border:none; cursor:pointer; font-size:15px;
+  padding:2px 4px; border-radius:4px; transition:opacity .15s;
+  line-height:1; vertical-align:middle;
+}
+.star-btn:hover { opacity:.7; }
+.star-btn.starred { filter: drop-shadow(0 0 3px #fbbf24); }
+
 @media(max-width:640px){
   .header-meta, .bt-header, .stats-bar { flex-direction:column; }
   .stbl { font-size:11px; }
@@ -1370,10 +1424,35 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
 
     rank_html = f'<span style="font-weight:800;color:{colour};font-size:13px">#{rank}</span>'
 
-    data_tr = f"""<tr>
+    # ── data-* attributes for live filtering (ST12) + watchlist JSON (ST13) ──
+    import json as _json
+    _ticker_raw  = row.get('Ticker', '')
+    _mos_raw     = _fv(row.get('MoS%', '')) or 0.0
+    _pe_raw      = _fv(row.get('P/E', '')) or 999.0
+    _pfcf_raw    = _fv(row.get('P/FCF', '')) or 999.0
+    _pio_raw     = _fv(row.get('Piotroski', '')) or 0.0
+    _sector_attr = (row.get('Sector', '') or '').strip().replace('"', '&quot;')
+    _row_json    = _json.dumps({
+        "ticker":    _ticker_raw,
+        "company":   row.get('Company', ''),
+        "mos":       round(_mos_raw, 1),
+        "pe":        round(_pe_raw, 1) if _pe_raw < 900 else None,
+        "pfcf":      round(_pfcf_raw, 1) if _pfcf_raw < 900 else None,
+        "piotroski": round(_pio_raw, 0),
+        "sector":    row.get('Sector', ''),
+        "price":     _fv(row.get('Price', '')),
+        "fit":       _fv(row.get('ProfileFit', '')),
+    }, separators=(',', ':')).replace('"', '&quot;')
+    _star_btn = (
+        f'<button class="star-btn" title="Add to watchlist" '
+        f'data-ticker="{_ticker_raw}" data-row-json="{_row_json}" '
+        f'onclick="toggleStar(this)">☆</button>'
+    )
+
+    data_tr = f"""<tr data-sector="{_sector_attr}" data-mos="{_mos_raw:.2f}" data-pe="{_pe_raw:.2f}" data-pfcf="{_pfcf_raw:.2f}" data-piotroski="{_pio_raw:.0f}">
       <td style="width:3%">{rank_html}</td>
       <td style="width:12%">
-        <div class="ticker-lbl">{row.get('Ticker','')}</div>
+        <div class="ticker-lbl">{_ticker_raw} {_star_btn}</div>
         <div class="company-lbl">{row.get('Company','')}</div>
         <div style="margin-top:2px">{badge}</div>
         {why_btn_html}
@@ -1446,10 +1525,17 @@ def _compact_row(row: dict, rank: int) -> str:
     else:
         status_badge = '<span style="font-size:9px;color:#9ca3af">—</span>'
 
-    return f"""<tr>
+    _c_ticker  = row.get('Ticker', '')
+    _c_mos     = mos_v if mos_v is not None else 0.0
+    _c_pe      = _fv(row.get('P/E', '')) or 999.0
+    _c_pfcf    = _fv(row.get('P/FCF', '')) or 999.0
+    _c_pio     = _fv(row.get('Piotroski', '')) or 0.0
+    _c_sector  = (row.get('Sector', '') or '').strip().replace('"', '&quot;')
+
+    return f"""<tr data-sector="{_c_sector}" data-mos="{_c_mos:.2f}" data-pe="{_c_pe:.2f}" data-pfcf="{_c_pfcf:.2f}" data-piotroski="{_c_pio:.0f}">
       <td style="color:#6b7280;font-size:12px">{rank}</td>
       <td>
-        <span style="font-weight:700;font-size:12px">{row.get('Ticker','')}</span>
+        <span style="font-weight:700;font-size:12px">{_c_ticker}</span>
         <span style="color:#9ca3af;font-size:11px;margin-left:4px">{row.get('Company','')[:28]}</span>
         {status_badge}
       </td>
@@ -1526,7 +1612,21 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
               — sorted by Fit Score descending, PASS/NEAR/TRAP status shown</span>
           </summary>
           <div style="margin-top:8px;overflow-x:hidden">
-            <table class="stbl" style="font-size:11.5px">
+            <div id="filter-{profile_key}-rest" class="filter-bar">
+              <label>Sector</label>
+              <select onchange="applyFilter('{profile_key}-rest')"><option value="">All sectors</option></select>
+              <label>Min MoS%</label>
+              <input type="number" placeholder="0" min="-100" max="100" step="1" onchange="applyFilter('{profile_key}-rest')">
+              <label>Max P/E</label>
+              <input type="number" placeholder="any" min="0" max="999" step="1" onchange="applyFilter('{profile_key}-rest')">
+              <label>Max P/FCF</label>
+              <input type="number" placeholder="any" min="0" max="999" step="1" onchange="applyFilter('{profile_key}-rest')">
+              <label>Min Piotroski</label>
+              <input type="number" placeholder="0" min="0" max="9" step="1" onchange="applyFilter('{profile_key}-rest')">
+              <button class="filter-reset" onclick="resetFilter('{profile_key}-rest')">Reset</button>
+              <span class="filter-count" id="fc-{profile_key}-rest"></span>
+            </div>
+            <table class="stbl" style="font-size:11.5px" id="tbl-{profile_key}-rest">
               <thead style="background:#1f2328">
                 <tr>
                   <th style="width:4%;color:#fff">#</th>
@@ -1568,10 +1668,24 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
           No company is hidden — all {n} ranked companies visible below.
         </div>
         {pills}
+        <div id="filter-{profile_key}-top" class="filter-bar">
+          <label>Sector</label>
+          <select onchange="applyFilter('{profile_key}-top')"><option value="">All sectors</option></select>
+          <label>Min MoS%</label>
+          <input type="number" placeholder="0" min="-100" max="100" step="1" onchange="applyFilter('{profile_key}-top')">
+          <label>Max P/E</label>
+          <input type="number" placeholder="any" min="0" max="999" step="1" onchange="applyFilter('{profile_key}-top')">
+          <label>Max P/FCF</label>
+          <input type="number" placeholder="any" min="0" max="999" step="1" onchange="applyFilter('{profile_key}-top')">
+          <label>Min Piotroski</label>
+          <input type="number" placeholder="0" min="0" max="9" step="1" onchange="applyFilter('{profile_key}-top')">
+          <button class="filter-reset" onclick="resetFilter('{profile_key}-top')">Reset</button>
+          <span class="filter-count" id="fc-{profile_key}-top"></span>
+        </div>
         <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#1f2328">
           Top {min(top_n, n)} — Detailed View
         </div>
-        <table class="stbl">
+        <table class="stbl" id="tbl-{profile_key}-top">
           {_table_header(show_fit=True)}
           <tbody>{top_html}</tbody>
         </table>
@@ -3072,6 +3186,19 @@ def build_full_report(out_path: Path) -> None:
     {toc_links}
   </div>
 
+  <!-- Watchlist section — populated by localStorage on load (ST13) -->
+  <div id="watchlist-section" class="watchlist-section" style="display:none">
+    <div class="watchlist-header">
+      <span style="font-size:20px">⭐</span>
+      <span class="watchlist-title">My Watchlist</span>
+      <span class="watchlist-subtitle" id="wl-count">0 companies saved</span>
+      <button class="wl-export-btn" onclick="exportWatchlistCSV()" style="margin-left:12px">⬇ Export CSV</button>
+    </div>
+    <div id="watchlist-body">
+      <div class="watchlist-empty">No companies starred yet. Click ☆ on any row to add.</div>
+    </div>
+  </div>
+
   {overall_top_section}
   {convictions_section}
   {''.join(profile_sections)}
@@ -3091,16 +3218,13 @@ def build_full_report(out_path: Path) -> None:
 </div>
 
 <script>
-/* Inline Why-Buy row toggle — no fixed positioning, pure in-page expansion */
+/* ── Why-Buy row toggle ───────────────────────────────────────────────────── */
 function toggleWhy(id) {{
   var row = document.getElementById(id);
   var btn = document.getElementById('btn-' + id);
   var arr = document.getElementById('arr-' + id);
   if (!row) return;
-
   var isOpen = row.style.display !== 'none';
-
-  /* close all other open why-rows first */
   document.querySelectorAll('.why-row').forEach(function(r) {{
     if (r !== row && r.style.display !== 'none') {{
       r.style.display = 'none';
@@ -3111,7 +3235,6 @@ function toggleWhy(id) {{
       if (otherArr) otherArr.classList.remove('open');
     }}
   }});
-
   if (isOpen) {{
     row.style.display = 'none';
     if (btn) btn.classList.remove('open');
@@ -3120,10 +3243,216 @@ function toggleWhy(id) {{
     row.style.display = '';
     if (btn) btn.classList.add('open');
     if (arr) arr.classList.add('open');
-    /* smooth scroll so expansion is visible */
     setTimeout(function() {{ row.scrollIntoView({{behavior:'smooth', block:'nearest'}}); }}, 50);
   }}
 }}
+
+/* ── Live Filter Bar (ST12) ──────────────────────────────────────────────── */
+function applyFilter(sectionId) {{
+  var filterBar = document.getElementById('filter-' + sectionId);
+  var table     = document.getElementById('tbl-' + sectionId);
+  var counter   = document.getElementById('fc-' + sectionId);
+  if (!filterBar || !table) return;
+
+  var inputs    = filterBar.querySelectorAll('input[type=number]');
+  var selSector = filterBar.querySelector('select');
+  var minMos    = inputs[0] && inputs[0].value !== '' ? parseFloat(inputs[0].value) : null;
+  var maxPe     = inputs[1] && inputs[1].value !== '' ? parseFloat(inputs[1].value) : null;
+  var maxPfcf   = inputs[2] && inputs[2].value !== '' ? parseFloat(inputs[2].value) : null;
+  var minPio    = inputs[3] && inputs[3].value !== '' ? parseFloat(inputs[3].value) : null;
+  var sector    = selSector ? selSector.value : '';
+
+  var rows   = table.querySelectorAll('tbody tr[data-sector]');
+  var shown  = 0;
+  var total  = 0;
+  rows.forEach(function(tr) {{
+    total++;
+    var rSector = tr.getAttribute('data-sector') || '';
+    var rMos    = parseFloat(tr.getAttribute('data-mos')  || '0');
+    var rPe     = parseFloat(tr.getAttribute('data-pe')   || '999');
+    var rPfcf   = parseFloat(tr.getAttribute('data-pfcf') || '999');
+    var rPio    = parseFloat(tr.getAttribute('data-piotroski') || '0');
+    var visible = true;
+    if (sector  && rSector !== sector)           visible = false;
+    if (minMos  !== null && rMos  < minMos)      visible = false;
+    if (maxPe   !== null && rPe   > maxPe)       visible = false;
+    if (maxPfcf !== null && rPfcf > maxPfcf)     visible = false;
+    if (minPio  !== null && rPio  < minPio)      visible = false;
+    tr.style.display = visible ? '' : 'none';
+    /* also hide/show the adjacent why-row if present */
+    var next = tr.nextElementSibling;
+    if (next && next.classList.contains('why-row')) next.style.display = 'none';
+    if (visible) shown++;
+  }});
+  if (counter) counter.textContent = 'Showing ' + shown + ' of ' + total;
+}}
+
+function resetFilter(sectionId) {{
+  var filterBar = document.getElementById('filter-' + sectionId);
+  if (!filterBar) return;
+  filterBar.querySelectorAll('input[type=number]').forEach(function(el) {{ el.value = ''; }});
+  var sel = filterBar.querySelector('select');
+  if (sel) sel.value = '';
+  applyFilter(sectionId);
+}}
+
+function initFilter(sectionId) {{
+  var table    = document.getElementById('tbl-' + sectionId);
+  var filterBar = document.getElementById('filter-' + sectionId);
+  if (!table || !filterBar) return;
+  /* populate sector dropdown from table rows */
+  var sel     = filterBar.querySelector('select');
+  var sectors = {{}};
+  table.querySelectorAll('tbody tr[data-sector]').forEach(function(tr) {{
+    var s = tr.getAttribute('data-sector');
+    if (s) sectors[s] = true;
+  }});
+  Object.keys(sectors).sort().forEach(function(s) {{
+    var opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    sel.appendChild(opt);
+  }});
+  /* show total count */
+  var counter = document.getElementById('fc-' + sectionId);
+  var total   = table.querySelectorAll('tbody tr[data-sector]').length;
+  if (counter) counter.textContent = 'Showing ' + total + ' of ' + total;
+}}
+
+/* ── Watchlist + localStorage (ST13) ────────────────────────────────────── */
+var WL_KEY = 'uv_watchlist';
+
+function _getWatchlist() {{
+  try {{ return JSON.parse(localStorage.getItem(WL_KEY) || '[]'); }}
+  catch(e) {{ return []; }}
+}}
+function _saveWatchlist(arr) {{
+  localStorage.setItem(WL_KEY, JSON.stringify(arr));
+}}
+
+function toggleStar(btn) {{
+  var ticker  = btn.getAttribute('data-ticker');
+  if (!ticker) return;
+  var rawJson = btn.getAttribute('data-row-json') || '{{}}';
+  var rowData;
+  try {{ rowData = JSON.parse(rawJson); }} catch(e) {{ rowData = {{ticker: ticker}}; }}
+  var wl = _getWatchlist();
+  var idx = wl.findIndex(function(x) {{ return x.ticker === ticker; }});
+  if (idx >= 0) {{
+    wl.splice(idx, 1);
+    btn.textContent = '☆';
+    btn.classList.remove('starred');
+    btn.title = 'Add to watchlist';
+  }} else {{
+    wl.push(rowData);
+    btn.textContent = '⭐';
+    btn.classList.add('starred');
+    btn.title = 'Remove from watchlist';
+  }}
+  _saveWatchlist(wl);
+  renderWatchlist();
+}}
+
+function renderWatchlist() {{
+  var wl      = _getWatchlist();
+  var section = document.getElementById('watchlist-section');
+  var body    = document.getElementById('watchlist-body');
+  var count   = document.getElementById('wl-count');
+  if (!section) return;
+  if (count) count.textContent = wl.length + ' compan' + (wl.length === 1 ? 'y' : 'ies') + ' saved';
+  if (wl.length === 0) {{
+    section.style.display = 'none';
+    if (body) body.innerHTML = '<div class="watchlist-empty">No companies starred yet. Click ☆ on any row to add.</div>';
+    return;
+  }}
+  section.style.display = '';
+  var html = '<table class="watchlist-tbl"><thead><tr>'
+    + '<th>Ticker</th><th>Company</th><th>Sector</th>'
+    + '<th class="r">Price</th><th class="r">MoS%</th>'
+    + '<th class="r">P/E</th><th class="r">P/FCF</th>'
+    + '<th class="r">Piotroski</th><th class="r">Fit</th><th></th>'
+    + '</tr></thead><tbody>';
+  wl.forEach(function(d) {{
+    var mosColor = (d.mos >= 30) ? '#16a34a' : (d.mos >= 15 ? '#eab308' : '#e11d48');
+    html += '<tr>'
+      + '<td><strong>' + (d.ticker||'') + '</strong></td>'
+      + '<td style="font-size:11px;color:#57606a">' + (d.company||'') + '</td>'
+      + '<td style="font-size:11px;color:#9ca3af">' + (d.sector||'') + '</td>'
+      + '<td class="r">' + (d.price != null ? '$' + d.price.toFixed(2) : '—') + '</td>'
+      + '<td class="r" style="color:' + mosColor + ';font-weight:700">' + (d.mos != null ? d.mos.toFixed(1)+'%' : '—') + '</td>'
+      + '<td class="r">' + (d.pe != null ? d.pe.toFixed(1)+'x' : '—') + '</td>'
+      + '<td class="r">' + (d.pfcf != null ? d.pfcf.toFixed(1)+'x' : '—') + '</td>'
+      + '<td class="r">' + (d.piotroski != null ? d.piotroski+'/9' : '—') + '</td>'
+      + '<td class="r">' + (d.fit != null ? d.fit.toFixed(0) : '—') + '</td>'
+      + '<td><button class="star-btn starred" data-ticker="' + d.ticker + '" data-row-json=""'
+      + ' onclick="removeFromWatchlist(\'' + d.ticker + '\')">⭐</button></td>'
+      + '</tr>';
+  }});
+  html += '</tbody></table>';
+  if (body) body.innerHTML = html;
+}}
+
+function removeFromWatchlist(ticker) {{
+  var wl  = _getWatchlist().filter(function(x) {{ return x.ticker !== ticker; }});
+  _saveWatchlist(wl);
+  /* update star buttons in main tables */
+  document.querySelectorAll('.star-btn[data-ticker="' + ticker + '"]').forEach(function(btn) {{
+    btn.textContent = '☆';
+    btn.classList.remove('starred');
+    btn.title = 'Add to watchlist';
+  }});
+  renderWatchlist();
+}}
+
+function exportWatchlistCSV() {{
+  var wl = _getWatchlist();
+  if (wl.length === 0) return;
+  var header = ['ticker','company','sector','price','mos','pe','pfcf','piotroski','fit'];
+  var rows   = wl.map(function(d) {{
+    return header.map(function(k) {{
+      var v = d[k];
+      if (v == null) return '';
+      var s = String(v);
+      return s.indexOf(',') >= 0 ? '"' + s + '"' : s;
+    }}).join(',');
+  }});
+  var csv = header.join(',') + '\n' + rows.join('\n');
+  var blob = new Blob([csv], {{type:'text/csv'}});
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href   = url; a.download = 'watchlist.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}}
+
+function loadWatchlist() {{
+  /* Restore star button states from localStorage */
+  var wl = _getWatchlist();
+  var inWl = {{}};
+  wl.forEach(function(d) {{ if (d.ticker) inWl[d.ticker] = true; }});
+  document.querySelectorAll('.star-btn[data-ticker]').forEach(function(btn) {{
+    var t = btn.getAttribute('data-ticker');
+    if (inWl[t]) {{
+      btn.textContent = '⭐';
+      btn.classList.add('starred');
+      btn.title = 'Remove from watchlist';
+    }}
+  }});
+  renderWatchlist();
+}}
+
+/* ── Initialise on DOMContentLoaded ─────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {{
+  /* Init all filter bars */
+  ['deep_value-top','deep_value-rest',
+   'buffett_quality-top','buffett_quality-rest',
+   'high_fcf_yield-top','high_fcf_yield-rest',
+   'quality_value-top','quality_value-rest',
+   'dividend_growth-top','dividend_growth-rest'
+  ].forEach(function(sid) {{ initFilter(sid); }});
+  /* Restore watchlist stars */
+  loadWatchlist();
+}});
 </script>
 </body>
 </html>"""

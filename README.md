@@ -1,36 +1,39 @@
-# Stock Screener & Intrinsic Value Engine
+# Stock Screener & Intrinsic Value Engine — v3
 
 > **Ce face acest proiect în două propoziții:**
-> Descarcă automat datele financiare reale ale tuturor celor 503 companii din S&P 500,
-> calculează valoarea lor intrinsecă și îți arată care sunt **subevaluate** — cu un raport
-> HTML complet, în mai puțin de 3 minute, 100% local, fără abonamente plătite.
+> Descarcă automat datele financiare reale ale tuturor companiilor din S&P 500, NASDAQ-100,
+> Russell 2000, Euro Stoxx 50 sau BET România, calculează valoarea lor intrinsecă și îți arată
+> care sunt **subevaluate** — cu un raport HTML complet, interactiv și 100% local, în mai
+> puțin de 5 minute, fără abonamente plătite.
 
 ---
 
 ## Cuprins
 
 1. [Ce problemă rezolvă](#ce-problemă-rezolvă)
-2. [Cum funcționează — pas cu pas](#cum-funcționează--pas-cu-pas)
-3. [Cele 4 screen-uri de investiții](#cele-4-screen-uri-de-investiții)
-4. [Top Convictions — semnalul cel mai puternic](#top-convictions--semnalul-cel-mai-puternic)
+2. [Noutăți v3 — cele 13 sub-task-uri](#noutăți-v3--cele-13-sub-task-uri)
+3. [Cum funcționează — pas cu pas](#cum-funcționează--pas-cu-pas)
+4. [Profile de screening](#profile-de-screening)
 5. [Metricile calculate](#metricile-calculate)
-6. [Modele de evaluare DCF](#modele-de-evaluare-dcf)
-7. [Scoruri de calitate](#scoruri-de-calitate)
-8. [Raportul HTML](#raportul-html)
+6. [Modele de evaluare](#modele-de-evaluare)
+7. [Scoruri de calitate și detectare manipulare](#scoruri-de-calitate-și-detectare-manipulare)
+8. [Raportul HTML — funcționalități interactive](#raportul-html--funcționalități-interactive)
 9. [Backtesting vs S&P 500](#backtesting-vs-sp-500)
 10. [Instalare și rulare rapidă](#instalare-și-rulare-rapidă)
 11. [Toate comenzile CLI](#toate-comenzile-cli)
 12. [Structura bazei de date](#structura-bazei-de-date)
 13. [Structura proiectului](#structura-proiectului)
 14. [Limitări cunoscute](#limitări-cunoscute)
+15. [Rularea testelor](#rularea-testelor)
+16. [Tehnologii folosite](#tehnologii-folosite)
 
 ---
 
 ## Ce problemă rezolvă
 
 Găsirea acțiunilor subevaluate manual înseamnă să analizezi câte o companie pe rând —
-bilanț, cont de profit, cashflow, comparație cu concurența. Pentru 503 companii ar dura
-**luni întregi**. Acest sistem face totul automat în ~3 minute.
+bilanț, cont de profit, cashflow, comparație cu concurența. Pentru 500+ companii ar dura
+**luni întregi**. Acest sistem face totul automat în ~5 minute.
 
 **Principiul de bază:** dacă prețul de piață al unei companii este semnificativ mai mic
 decât valoarea ei calculată (intrinsecă), există o **Marjă de Siguranță** — un buffer
@@ -45,165 +48,212 @@ Marjă de Siguranță:  60%  ← cumperi $1 de valoare cu $0.40
 
 ---
 
+## Noutăți v3 — cele 13 sub-task-uri
+
+Versiunea 3 adaugă **13 îmbunătățiri majore** față de v2, organizate în 5 faze:
+
+### Faza 1 — Date suplimentare expuse (ST1–ST2)
+
+| Sub-task | Descriere | Impact |
+|---|---|---|
+| **ST1** | ROE, ROA, Beta, Gross Margin, Operating Margin | Afișate în Why-Buy și scoruri de calitate |
+| **ST2** | **Graham Number** — al 3-lea model de valoare intrinsecă | `√(22.5 × EPS × Book Value per share)` |
+
+**Graham Number** este o valoare conservatoare calculată direct din EPS și Book Value,
+independentă de DCF. Comparat cu prețul curent dă o perspectivă extra-conservatoare.
+
+### Faza 2 — Îmbogățire motor de evaluare (ST3–ST5)
+
+| Sub-task | Descriere | Impact |
+|---|---|---|
+| **ST3** | **DCF Sensitivity Matrix 3×3** | Bear/Base/Bull × 3 rate de creștere în raportul HTML |
+| **ST4** | **Beneish M-Score** (detecție manipulare contabilă) | Flaghează companiile cu risc de fraud earnings |
+| **ST5** | **SBC/Share Dilution Tracking** | SBC% din FCF, ajustare FCF real, diluare acțiuni YoY |
+
+**Beneish M-Score** analizează 8 indici contabili (DSRI, GMI, AQI, SGI, DEPI, SGAI, LVGI, TATA).
+M-Score > -1.78 → risc ridicat de manipulare → flag `MANIPULATION_RISK` în raport.
+
+**SBC (Stock-Based Compensation)** reduce FCF-ul real. Un SBC/FCF > 30% semnalează că
+profitabilitatea aparentă e parțial o iluzie contabilă.
+
+### Faza 3 — Algoritmi de ranking (ST6–ST9)
+
+| Sub-task | Descriere | Impact |
+|---|---|---|
+| **ST6** | **Dividend Growth Profile** | Screen dedicat: yield ≥ 2.5%, FCF payout ≤ 70%, Net Debt/EBITDA ≤ 2.0 |
+| **ST7** | **Magic Formula Greenblatt** | Ranking combinat Earnings Yield + ROIC pe tot universul |
+| **ST8** | **Percentile sectoriale** | P/E, P/FCF, EV/EBITDA față de media sectorului (nu față de tot S&P 500) |
+| **ST9** | **Score History + Sparklines** | Evoluția scorului compozit în timp, vizualizare SVG inline |
+
+**Magic Formula** (Joel Greenblatt): sortează toate companiile după `rang(EarningsYield) + rang(ROIC)`.
+Companiile cu cel mai bun raport calitate/preț simultan → Top 30 afișate.
+
+**Percentile sectoriale** rezolvă problema "comparare mere cu portocale": o companie Tech
+cu P/E 20× poate fi ieftină față de sectorul ei (median 35×), chiar dacă pare scumpă absolut.
+
+### Faza 4 — Extindere univers (ST10–ST11)
+
+| Sub-task | Descriere | Tickers |
+|---|---|---|
+| **ST10** | **Russell 2000** (small-cap SUA) | ~2000 tickers (Wikipedia scrape + 50 fallback) |
+| **ST11** | **Euro Stoxx 50** + **BET România** | 50 blue-chips europene + 18 tickers BET cu sufix `.RO` |
+
+```bash
+# Russell 2000 — oportunități small-cap
+python src/main.py --universe russell2000 --profile deep_value --workers 10
+
+# Euro Stoxx 50 — piețe europene
+python src/main.py --universe eurostoxx50 --profile buffett_quality --workers 8
+
+# BET România — piața locală
+python src/main.py --universe bet --profile dividend_growth --workers 4
+```
+
+> **Notă yfinance:** tickerele europene folosesc sufixe standard:
+> `.PA` (Paris), `.AS` (Amsterdam), `.DE` (Xetra), `.MI` (Milano), `.RO` (București)
+
+### Faza 5 — UX / Interactivitate (ST12–ST13)
+
+| Sub-task | Descriere | Fără server |
+|---|---|---|
+| **ST12** | **Live Frontend Filtering** | Sector dropdown + Min MoS% + Max P/E + Max P/FCF + Min Piotroski |
+| **ST13** | **Watchlist + localStorage** | Star ⭐ per companie, persistent, export CSV |
+
+**Filtrare live (ST12):** fiecare tabel din raportul HTML are o bară de filtre. Schimbi
+un criteriu → rândurile se ascund/afișează instant, contorul "Showing N of M" se actualizează.
+100% client-side JavaScript, zero server, funcționează offline.
+
+**Watchlist (ST13):** click pe ☆ lângă orice ticker → salvat în `localStorage` al browserului.
+La reîncărcarea paginii, stelele sunt restaurate. Secțiunea "My Watchlist" apare în top cu
+toate companiile starred. Butonul "⬇ Export CSV" descarcă un CSV cu companiile favorite.
+
+---
+
 ## Cum funcționează — pas cu pas
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  PASUL 1 — Universe                                             │
-│  Descarcă lista live a celor 503 companii S&P 500               │
-│  de pe Wikipedia (sau Dow 30, NASDAQ-100, CSV custom)           │
+│  Descarcă lista live a companiilor din sursele selectate:        │
+│  S&P 500 / NASDAQ-100 / Dow 30 / Russell 2000 / Euro Stoxx 50  │
+│  / BET Romania / World / Custom CSV                             │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────┐
 │  PASUL 2 — Fetch & Cache                                        │
-│  Descarcă date financiare reale pentru fiecare companie         │
-│  via Yahoo Finance (yfinance), 8 firme simultan.                │
-│  Salvează totul în DuckDB local (cache.duckdb, ~53 MB).         │
-│  La FIECARE rulare datele sunt re-descărcate fresh.             │
-│  Durată: ~3 min prima dată, ~3 min și data viitoare             │
+│  Descarcă date financiare via Yahoo Finance (yfinance),         │
+│  8+ firme simultan. Salvează în DuckDB local.                   │
+│  Durată: ~3–5 min (dependent de universum)                      │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────┐
-│  PASUL 3 — Valuation Engine                                     │
-│  Pentru fiecare companie calculează:                            │
-│  • 6 multipli de piață (P/E, P/B, EV/EBITDA, P/FCF, etc.)      │
-│  • 2 modele DCF independente (GGM + Exit Multiple)              │
-│  • Marjă de Siguranță % față de prețul curent                   │
-│  • 3 scoruri de calitate (Piotroski, Altman Z, ROIC)            │
-│  • Scor composite 0–100                                         │
-│  • WACC dinamic per companie                                    │
+│  PASUL 3 — Valuation Engine (v3)                                │
+│  • 6 multipli de piață + percentile sectoriale                  │
+│  • 3 modele DCF (GGM + Exit Multiple + Graham Number)           │
+│  • Marjă de Siguranță % + DCF Sensitivity Matrix 3×3            │
+│  • ROE, ROA, Beta, Gross/Operating Margin                       │
+│  • Piotroski F-Score, Altman Z, ROIC                            │
+│  • Beneish M-Score (detecție manipulare)                        │
+│  • SBC/FCF ratio + Share Dilution tracking                      │
+│  • Dividend yield, payout ratio FCF                             │
+│  • Score History (evoluție în timp)                             │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────┐
 │  PASUL 4 — Screen & Rank                                        │
-│  Aplică 4 filtre independente pe rezultate.                     │
-│  Fiecare filtru are o filosofie diferită de investiții.         │
-│  503 companii → de obicei 2–15 trec fiecare filtru             │
+│  5 profile predefinite + Magic Formula Greenblatt               │
+│  + Sector-relative percentiles                                  │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────┐
 │  PASUL 5 — Export                                               │
-│  • CSV/Excel cu toate rezultatele                               │
-│  • Raport HTML complet cu reasoning per companie                │
-│  • "Why buy X?" generat automat cu cifrele reale                │
+│  • CSV/Excel cu toate metricile (30+ coloane)                   │
+│  • Raport HTML interactiv cu filtrare live + watchlist          │
+│  • Auto-deploy GitHub Pages                                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Cele 4 screen-uri de investiții
+## Profile de screening
 
-Fiecare screen este **complet independent** — folosesc aceleași date calculate, dar aplică
-criterii diferite, bazate pe filosofii diferite de investiții.
-
-> **Analogie:** Vrei să cumperi o casă.
-> - **Deep Value** = cel mai mic preț/mp din oraș, indiferent de stare
-> - **Buffett Quality** = casă bine întreținută, cartier bun, la preț corect
-> - **High FCF Yield** = casa care generează cea mai mare chirie față de preț
-> - **Quality Value** = casă solidă structural, fără ipotecă mare, la discount
+Fiecare profil este **complet independent** — aceleași date, filosofii diferite.
 
 ### 🔵 Deep Value — `--profile deep_value`
 > *Inspirat din Benjamin Graham — "The Intelligent Investor" (1949)*
 
-Cel mai strict screen. Compania trebuie să treacă **toate 7 criterii simultan**:
-
-| Criteriu | Prag | Ce înseamnă |
-|---|---|---|
-| P/E | ≤ 15× | Prețul e sub 15 ani de profit |
-| P/B | ≤ 1.5× | Cumperi activele sub valoarea contabilă |
-| EV/EBITDA | ≤ 8× | Costul total de achiziție e mic față de profit operațional |
-| P/FCF | ≤ 15× | Prețul e sub 15 ani de cashflow liber real |
-| Net Debt/EBITDA | ≤ 2.5× | Datoriile pot fi plătite în 2.5 ani |
-| Margin of Safety | ≥ 20% | Reducere minimă față de valoarea intrinsecă |
-| Piotroski F-Score | ≥ 4/9 | Sănătate financiară de bază |
-
-Din 503 companii S&P 500, trec de obicei **2–5**.
+| Criteriu | Prag |
+|---|---|
+| P/E | ≤ 15× |
+| P/B | ≤ 1.5× |
+| EV/EBITDA | ≤ 8× |
+| P/FCF | ≤ 15× |
+| Net Debt/EBITDA | ≤ 2.5× |
+| Margin of Safety | ≥ 20% |
+| Piotroski | ≥ 4/9 |
 
 ---
 
 ### 🟣 Buffett Quality — `--profile buffett_quality`
-> *Inspirat din Warren Buffett — "calitate la un preț rezonabil"*
+> *"Calitate la un preț rezonabil"*
 
-Nu contează că e ieftin absolut — contează că **câștigă mai mult decât costul capitalului**:
-
-| Criteriu | Prag | Ce înseamnă |
-|---|---|---|
-| ROIC | ≥ 10% | Câștigă mai mult decât costă capitalul investit |
-| Piotroski | ≥ 6/9 | Fundamentele contabile sunt solide |
-| P/FCF | ≤ 20× | Cashflow la un preț rezonabil |
-| EV/EBITDA | ≤ 12× | Nu prea scump față de profit operațional |
-| Margin of Safety | ≥ 15% | Discount față de valoarea calculată |
-| Altman Z | ≥ 1.0 | Nu e în zona de risc de faliment |
+| Criteriu | Prag |
+|---|---|
+| ROIC | ≥ 10% |
+| ROE | ≥ 12% |
+| Piotroski | ≥ 6/9 |
+| Gross Margin | ≥ 30% |
+| P/FCF | ≤ 20× |
+| EV/EBITDA | ≤ 12× |
+| Margin of Safety | ≥ 15% |
+| Altman Z | ≥ 1.0 |
 
 ---
 
 ### 🟢 High FCF Yield — `--profile high_fcf_yield`
-> *Focalizat pe cashflow liber — cel mai greu de manipulat indicator*
 
-Simplu și direct — cashflow maxim la preț minim:
-
-| Criteriu | Prag | Ce înseamnă |
-|---|---|---|
-| P/FCF | ≤ 12× | Plătești sub 12 ani de cashflow real pentru toată firma |
-| Margin of Safety | ≥ 30% | Reducere semnificativă față de valoarea intrinsecă |
-
-> **De ce P/FCF e important?** Spre deosebire de profit net (care poate fi "aranjat"
-> contabil), cashflow liber = banii care chiar intră în contul firmei. Mult mai greu
-> de manipulat.
+| Criteriu | Prag |
+|---|---|
+| P/FCF | ≤ 12× |
+| Margin of Safety | ≥ 30% |
 
 ---
 
 ### 🟡 Quality Value — `--profile quality_value`
-> *Echilibru între calitate și valoare — cea mai completă verificare*
 
-| Criteriu | Prag | Ce înseamnă |
-|---|---|---|
-| EV/EBITDA | ≤ 10× | Preț rezonabil față de profit operațional |
-| P/E | ≤ 18× | Sub media S&P 500 (~22×) |
-| ROIC | ≥ 8% | Eficiență minimă a capitalului |
-| Piotroski | ≥ 6/9 | Fundamentele îmbunătățite |
-| Altman Z | ≥ 1.0 | Nu e în dificultate financiară |
-| Margin of Safety | ≥ 20% | Discount clar față de valoare |
-
----
-
-### 🔵 Dow Jones 30 — `--universe dow30`
-> *Ranking pur după poziție în range-ul anual — fără filtru MoS*
-
-Toate 30 companiile Dow sunt **listate și sortate** după cât de aproape sunt de minimul
-lor anual. Nu e un filtru de calitate — e un indicator tehnic pentru blue-chips:
-
-```
-52w Position% = (Preț curent − Minim 52 săpt.) / (Maxim − Minim) × 100
-```
-
-- **0%** = la minimul anual — cel mai mult upside potențial
-- **100%** = la maximul anual — cel mai puțin upside
-
-Dow 30 e special: companiile slabe sunt eliminate periodic din index, deci o
-companie Dow la minimul anual este aproape sigur o oportunitate temporară, nu o problemă structurală.
+| Criteriu | Prag |
+|---|---|
+| EV/EBITDA | ≤ 10× |
+| P/E | ≤ 18× |
+| ROIC | ≥ 8% |
+| Piotroski | ≥ 6/9 |
+| Altman Z | ≥ 1.0 |
+| Margin of Safety | ≥ 20% |
 
 ---
 
-## Top Convictions — semnalul cel mai puternic
+### 🔵 Dividend Growth — `--profile dividend_growth` *(NOU v3)*
+> *Income investing sustenabil*
 
-Prima secțiune din raportul HTML. Arată companiile care au **trecut prin 2 sau mai
-multe screen-uri simultan**.
+| Criteriu | Prag |
+|---|---|
+| Dividend Yield | ≥ 2.5% |
+| FCF Payout Ratio | ≤ 70% |
+| Net Debt/EBITDA | ≤ 2.0× |
+| Piotroski | ≥ 5/9 |
+| Beneish Flag | Fără MANIPULATION_RISK |
 
-**Logica:** fiecare screen folosește o filosofie complet diferită. Dacă 3 filosofii
-independente ajung la aceeași concluzie despre aceeași companie, semnalul e mult
-mai robust.
+---
+
+### 🔮 Magic Formula Greenblatt *(NOU v3)*
+
+Ranking combinat pe tot universul (fără filtre stricte):
 
 ```
-Niveluri de conviction:
-  ⭐ GOLD     (4/4 profile) — cel mai puternic semnal posibil
-  🟢 HIGH     (3/4 profile) — 3 filosofii diferite, același rezultat
-  🔵 MODERATE (2/4 profile) — confirmat de 2 abordări independente
+Magic Rank = rank(Earnings Yield = E/P) + rank(ROIC)
 ```
 
-**Exemplu real (August 2026):**
-- **APA Corporation** — trece Buffett Quality + High FCF Yield + Quality Value
-  → nivel HIGH, MoS 64%, ROIC 14.1%, P/FCF 6.9×
+Top 30 companii cu cel mai bun rang combinat. Exclude financiale și utilități.
 
 ---
 
@@ -211,157 +261,220 @@ Niveluri de conviction:
 
 ### Multipli de piață (relativi)
 
-| Metric | Ce măsoară | S&P 500 avg | Bun dacă |
-|---|---|---|---|
-| **P/E** | Ani de profit ca să recuperezi prețul | ~22× | ≤ 15× |
-| **P/B** | Prețul față de activele nete contabile | ~4× | ≤ 1.5× (cumperi sub valoarea activelor) |
-| **EV/EBITDA** | Costul total de achiziție / profit operațional | ~14× | ≤ 8× |
-| **P/FCF** | Prețul față de cashflow real generat | ~20× | ≤ 12× |
-| **Net Debt/EBITDA** | Ani necesari să plătești datoriile din profit | — | ≤ 2.5× (leverage conservator) |
+| Metric | Ce măsoară | Bun dacă |
+|---|---|---|
+| **P/E** | Ani de profit ca să recuperezi prețul | ≤ 15× |
+| **P/B** | Prețul față de activele nete contabile | ≤ 1.5× |
+| **EV/EBITDA** | Costul total de achiziție / profit operațional | ≤ 8× |
+| **P/FCF** | Prețul față de cashflow real generat | ≤ 12× |
+| **Net Debt/EBITDA** | Ani necesari să plătești datoriile | ≤ 2.5× |
+| **PEG Ratio** | P/E ajustat la creștere | ≤ 1.0 |
 
-### Poziție 52 săptămâni
+### Percentile sectoriale *(NOU v3)*
 
-```
-52w Position% = (Preț curent − Minim 52w) / (Maxim 52w − Minim 52w) × 100
-```
+| Metric | Descriere |
+|---|---|
+| `sector_pe_percentile` | P/E al companiei față de distribuția P/E în sectorul ei |
+| `sector_pfcf_percentile` | P/FCF față de sector |
+| `sector_ev_percentile` | EV/EBITDA față de sector |
 
-- **Verde < 33%** — aproape de minimul anual → upside tehnic maxim
-- **Galben 33–66%** — în mijlocul range-ului
-- **Roșu > 66%** — aproape de maximul anual → prudență
+**Interpretare:** percentila 20 = mai ieftină decât 80% din companiile din același sector.
+
+### Indicatori de profitabilitate *(NOU v3)*
+
+| Metric | Descriere |
+|---|---|
+| **ROE** | Return on Equity — eficiența capitalului propriu |
+| **ROA** | Return on Assets — eficiența activelor totale |
+| **Gross Margin** | Marja brută (Gross Profit / Revenue) |
+| **Operating Margin** | Marja operațională (EBIT / Revenue) |
+| **Beta** | Volatilitatea față de piață (1.0 = piața) |
+
+### SBC & Diluare *(NOU v3)*
+
+| Metric | Descriere |
+|---|---|
+| **SBC / FCF %** | Stock-Based Compensation ca % din Free Cash Flow |
+| **SBC-Adjusted FCF** | FCF real după scăderea SBC |
+| **Shares Dilution %** | Variația numărului de acțiuni YoY |
+
+> **Atenție:** SBC/FCF > 30% → profitabilitatea aparentă e parțial contabilă.
+> SBC-Adjusted FCF e mai conservator și mai relevant pentru evaluare.
+
+### Dividend metrics *(NOU v3)*
+
+| Metric | Descriere |
+|---|---|
+| **Dividend Yield** | Dividend anual / Preț curent |
+| **FCF Payout Ratio** | Dividend total / Free Cash Flow |
 
 ---
 
-## Modele de evaluare DCF
+## Modele de evaluare
 
-Motorul calculează **două modele DCF independente** pentru fiecare companie și le
-face media pentru a obține valoarea intrinsecă finală.
+Motorul calculează **trei modele independente** și face media ponderată.
 
 ### Model 1 — Gordon Growth Model (GGM)
-> Conservator. Bazat pe cashflow liber real.
 
 1. Extrage Free Cash Flow din ultimii 3–5 ani
 2. Cere minim **3 ani de FCF pozitiv** (altfel: `INSUFFICIENT_DATA`)
-3. Folosește media FCF ca estimare bază
-4. Proiectează 10 ani la o rată de creștere de 5%
-5. Adaugă valoarea terminală: `TV = FCF × (1+g) / (r−g)`
-6. Actualizează la prezent cu WACC dinamic per companie
-7. Împarte la numărul de acțiuni → valoare per acțiune
+3. Proiectează 10 ani la rata de creștere configurabilă (default 5%)
+4. Valoare terminală: `TV = FCF × (1+g) / (r−g)`
+5. Actualizează cu WACC dinamic per companie
 
 ### Model 2 — Exit Multiple
-> Relativ la piață. Bazat pe EBITDA.
 
 1. Folosește EBITDA curent ca bază
 2. Proiectează 10 ani la 5% creștere
 3. Valoare terminală = `EBITDA_10 × 12×` (multiplul median S&P 500)
 4. Scade datoriile nete → valoare equity
-5. Actualizează la prezent → valoare per acțiune
+
+### Model 3 — Graham Number *(NOU v3)*
+
+```
+Graham Number = √(22.5 × EPS × Book Value per share)
+```
+
+Valoarea maximă la care Graham ar considera o companie ieftină:
+- **≥ 40% discount** față de preț → semnal puternic
+- Bazat strict pe date contabile fundamentale
+
+### DCF Sensitivity Matrix *(NOU v3)*
+
+Pentru fiecare companie, raportul HTML afișează o matrice 3×3:
+
+```
+              Rate de creștere
+         Low (−2%)  Base (0%)  High (+2%)
+Bear   [   $X.XX  |  $X.XX  |  $X.XX  ]
+Base   [   $X.XX  |  $X.XX  |  $X.XX  ]   ← valoarea centrală = DCF Avg
+Bull   [   $X.XX  |  $X.XX  |  $X.XX  ]
+```
+
+Permite înțelegerea intervalului de incertitudine al modelului.
 
 ### Parametri DCF (configurabili)
 
 | Parametru | Default | Rațiune |
 |---|---|---|
-| `growth_rate` | 5% | Media creșterii economice pe termen lung (SUA) |
+| `growth_rate` | 5% | Media creșterii economice pe termen lung |
 | `discount_rate` | 10% | Randamentul istoric mediu S&P 500 |
-| `terminal_growth` | 2.5% | Inflație + creștere nominală pe termen lung |
+| `terminal_growth` | 2.5% | Inflație + creștere nominală |
 | `projection_years` | 10 | Orizontul standard DCF |
 | `exit_multiple` | 12× | Multiplul median EV/EBITDA S&P 500 |
 
-### Modele speciale
-
-- **DDM (Dividend Discount Model)** — fallback automat pentru bănci și asigurători
-  (sectorul Financiar), unde FCF-based DCF nu e valid
-- **WACC dinamic** — calculat per companie din beta real, rata dobânzii la datorii,
-  structura capitalului (equity vs debt). Nu un WACC fix de 10% pentru toți.
-- **Sustainable Growth Rate** — `g = ROE × Retention Ratio`, folosit ca rată de
-  creștere în GGM dacă e pozitiv și mai mic decât WACC
-
 ---
 
-## Scoruri de calitate
+## Scoruri de calitate și detectare manipulare
 
 ### Piotroski F-Score (0–9)
-9 criterii contabile binare — fiecare e 0 sau 1:
 
 | Grup | Criterii |
 |---|---|
 | **Profitabilitate** (4 pts) | ROA > 0, CFO > 0, ROA crescut YoY, Accruals < 0 |
-| **Leverage** (3 pts) | Leverage scăzut YoY, Lichiditate crescută YoY, Fără diluare acțiuni |
+| **Leverage** (3 pts) | Leverage scăzut YoY, Lichiditate crescută YoY, Fără diluare |
 | **Eficiență** (2 pts) | Marjă brută crescută YoY, Rotație active crescută YoY |
 
-**Interpretare:** ≥ 7 = companie cu fundamentale în îmbunătățire activă.
-4–6 = stabilă. < 4 = deteriorare.
+**Interpretare:** ≥ 7 = fundamentele se îmbunătățesc activ. 4–6 = stabil. < 4 = deteriorare.
 
 ### Altman Z-Score
-Model statistic de predicție a falimentului (1968, recalibrat):
 
 ```
 Z = 1.2×X1 + 1.4×X2 + 3.3×X3 + 0.6×X4 + 1.0×X5
 ```
 
-- **Z < 1.0** → zonă de risc real (exclus din profilele quality_value și buffett_quality)
-- **Z 1.0–2.99** → zonă gri (acceptabil, monitorizat)
-- **Z ≥ 3.0** → companie sănătoasă financiar
-
-> **Notă:** Pragul original al lui Altman era 1.81 pentru "distress". Am calibrat
-> la 1.0 pentru că media/telecom (ex: CMCSA) are Z structural mai mic fără a fi
-> în dificultate reală.
+- **Z < 1.0** → zonă de risc (exclus din quality_value și buffett_quality)
+- **Z 1.0–2.99** → zonă gri
+- **Z ≥ 3.0** → sănătos financiar
 
 ### ROIC — Return on Invested Capital
+
 ```
 ROIC = NOPAT / (Equity + Debt − Cash)
 ```
+
 - **≥ 15%** → avantaj competitiv clar (moat)
 - **≥ 10%** → depășește costul tipic al capitalului
-- **< 5%** → eficiență slabă, cazul investițional se bazează pe discount de preț
+- **< 5%** → eficiență slabă
+
+### Beneish M-Score *(NOU v3)*
+
+Detectează probabilitatea de **manipulare a câștigurilor**:
+
+| Indice | Ce detectează |
+|---|---|
+| **DSRI** | Days Sales Receivables Index — recunoaștere prematură venituri |
+| **GMI** | Gross Margin Index — deteriorare marje |
+| **AQI** | Asset Quality Index — capitalizare costuri nepotrivită |
+| **SGI** | Sales Growth Index — creștere sustenabilă vs artificială |
+| **LVGI** | Leverage Index — creștere rapidă a îndatorării |
+| **TATA** | Total Accruals to Total Assets — accruals vs cashflow real |
+
+**M-Score > -1.78 → flag MANIPULATION_RISK** în raportul HTML.
+
+> *Notă: DEPI și SGAI setate la 1.0 (neutral) — date de depreciere granulare nu sunt disponibile în yfinance.*
+
+### Score History & Sparklines *(NOU v3)*
+
+La fiecare rulare, scorul compozit 0–100 per companie este salvat în tabela `score_history`
+din DuckDB. Raportul HTML afișează un sparkline SVG inline care arată evoluția scorului
+în timp (ultimele N rulări).
 
 ---
 
-## Raportul HTML
+## Raportul HTML — funcționalități interactive
 
 ```bash
-# Generează raportul CONSOLIDAT cu toate profilurile + backtest
+# Generează raportul CONSOLIDAT cu toate profilurile
 python scripts/export_full_report.py
-
-# Raport individual (deep_value sau dow30)
-python scripts/export_html_report.py
-python scripts/export_html_report.py --csv data/reports/<timestamp>_deep_value.csv
+# → salvat automat în docs/index.html + push GitHub Pages
 ```
 
-### Ce conține `full_report.html`
+### Structura raportului
 
-Raportul este un singur fișier HTML de ~115–150 KB, complet self-contained
-(fără dependențe externe), **pregătit pentru export PDF** (Ctrl+P → Save as PDF).
+1. **★ Top Convictions** — companiile care trec prin 2+ profile simultan
+2. **Watchlist ⭐** *(NOU v3)* — companiile starred din localStorage
+3. **Deep Value Screen** — cu filter bar live
+4. **Buffett Quality Screen** — cu filter bar live
+5. **High FCF Yield Screen** — cu filter bar live
+6. **Quality Value Screen** — cu filter bar live
+7. **Dividend Growth Screen** *(NOU v3)* — cu filter bar live
+8. **Magic Formula Top 30** *(NOU v3)* — ranking Greenblatt
+9. **Dow Jones 30 Ranking** — gauge 52w position
+10. **Walk-Forward Backtest** — vs ^GSPC, grafic dual per an
+11. **Methodology** — explicații complete
 
-**Secțiuni:**
+### Filter Bar Live *(NOU v3)*
 
-1. **★ Top Convictions** — companiile care au trecut prin 2+ profile, cu:
-   - Nivel de conviction (GOLD/HIGH/MODERATE)
-   - Badge-uri colorate per profil (DV / BQ / FCF / QV)
-   - **"Why buy X?"** — paragraph generat automat cu cifrele reale:
-     > *"Our model estimates that APA Corporation (APA) is currently trading at a
-     > 64% discount to its calculated intrinsic value of $117.35 per share.
-     > In plain terms: for every $1 of estimated value, the market is charging
-     > only $0.36 — a rare margin of safety. At a P/E of 8.9× — versus the S&P 500
-     > average of ~22× — the market is pricing APA as if earnings will decline
-     > sharply..."*
+Fiecare secțiune de screening are o bară de filtre deasupra tabelului:
 
-2. **Deep Value Screen** — tabel cu toate metricile: prețul, valoarea intrinsecă,
-   MoS%, 52w position, P/E, P/B, EV/EBITDA, P/FCF, Net Debt/EBITDA,
-   Piotroski badge, ROIC badge, model DCF folosit, grad (A+/A/B+/B/C)
+```
+[Sector ▼] [Min MoS% ___] [Max P/E ___] [Max P/FCF ___] [Min Pio ___] [Reset] Showing 4 of 10
+```
 
-3. **Buffett Quality Screen** — același format, cu accentul pe ROIC și calitate
+- **Sector dropdown** — populat automat din datele tabelului
+- **Filtre numerice** — Min Margin of Safety %, Max P/E, Max P/FCF, Min Piotroski
+- **Reset** — șterge toate filtrele
+- **Showing N of M** — contor live actualizat la fiecare schimbare
+- Funcționează și pe rândurile din "Show all N remaining companies"
 
-4. **High FCF Yield Screen** — 11 companii sortate după cashflow yield
+### Watchlist + localStorage *(NOU v3)*
 
-5. **Quality Value Screen** — blend echilibrat
+- Click **☆** lângă orice ticker → adăugat la watchlist (☆ → ⭐)
+- Click **⭐** → eliminat din watchlist
+- **Persistent** — se salvează în `localStorage["uv_watchlist"]` al browserului
+- La reîncărcare pagină → stelele sunt restaurate automat
+- Secțiunea "My Watchlist" apare în top cu tabelul companiilor favorite
+- **⬇ Export CSV** → descarcă `watchlist.csv` cu: ticker, company, sector, price, MoS%, P/E, P/FCF, Piotroski, Fit
 
-6. **Dow Jones 30 Ranking** — toate 30 companii, gauge vizual 52w position
+### Why Buy — raționament per companie
 
-7. **Backtest vs S&P 500** — grafic vizual dual per an (portfolio vs ^GSPC),
-   tabel detaliat cu "Excess vs SPX" colorat verde/roșu, KPI-uri:
-   Portfolio CAGR, S&P 500 CAGR, Sharpe, Sortino, Max Drawdown, Win Rate
-
-8. **Methodology** — tabel cu toate cele 13 feature-uri v2, Faze 1–5
+Fiecare companie are un buton **"Why Buy →"** care extinde un panou cu:
+- Raționament narativ generat automat cu cifrele reale
+- Grafic OHLCV (candlestick 1 an) cu prețul curent vs valoarea intrinsecă
+- DCF Sensitivity Matrix 3×3 (Bear/Base/Bull)
+- Score sparkline (evoluție în timp)
+- Beneish M-Score cu flaguri per indice
 
 ---
 
@@ -373,24 +486,12 @@ python src/main.py --universe sp500 --profile deep_value \
   --workers 6 --export csv
 ```
 
-Simulare walk-forward: la începutul fiecărui an, ia top-N companii din screen,
-ține-le 12 luni, măsoară randamentul față de **^GSPC (S&P 500)**.
+Walk-forward anual: top-N companii din screen, ținute 12 luni, vs ^GSPC.
 
-**Exemplu rezultate reale (Deep Value, 2021–2024, CMCSA + FISV):**
-
-| An | Portfolio | S&P 500 | Excess vs SPX |
-|---|---|---|---|
-| 2021 | -3.5% | +27.7% | -31.2% |
-| 2022 | -16.7% | -20.3% | **+3.6%** |
-| 2023 | +28.9% | +24.0% | **+4.8%** |
-| 2024 | +21.2% | +23.7% | -2.5% |
-| **CAGR** | **+5.87%** | **+11.80%** | -5.93% |
-
-**Limitări importante ale backtestului:**
+**Limitări importante:**
 - **Look-ahead bias** — folosește fundamentalele *curente* pentru toți anii istorici
-- **Survivorship bias** — include doar companiile care sunt *acum* în S&P 500
+- **Survivorship bias** — include doar companiile *actuale* din index
 - **Fără costuri de tranzacție** — nu include comisioane sau spread bid-ask
-- Rezultatele sunt indicatori direcționali, nu predicții.
 
 ---
 
@@ -425,61 +526,44 @@ pip install -r requirements.txt
 python src/main.py --universe sp500 --profile deep_value --workers 6 --export csv
 python scripts/export_full_report.py
 # → deschide data/reports/full_report.html în browser
+# → sau vizualizează live: https://um01932.github.io/undervalued-stocks/
 ```
 
-**Durată:** ~3 minute (descărcare fresh) → deschide browserul cu raportul.
+**Durată:** ~3–5 minute.
 
 ---
 
 ## Toate comenzile CLI
 
 ```bash
-# ── Screen-uri principale ─────────────────────────────────────────────────────
-
-# S&P 500, Deep Value (cel mai strict)
+# ── S&P 500 ───────────────────────────────────────────────────────────────────
 python src/main.py --universe sp500 --profile deep_value --workers 6 --export csv
-
-# S&P 500, Buffett Quality
 python src/main.py --universe sp500 --profile buffett_quality --workers 6 --export csv
-
-# S&P 500, High FCF Yield
 python src/main.py --universe sp500 --profile high_fcf_yield --workers 6 --export csv
-
-# S&P 500, Quality Value
 python src/main.py --universe sp500 --profile quality_value --workers 6 --export csv
+python src/main.py --universe sp500 --profile dividend_growth --workers 6 --export csv
 
-# Dow Jones 30 — ranking 52w position (fără filtru MoS)
-python src/main.py --universe dow30 --workers 6 --export csv
-
-# NASDAQ-100
+# ── Alte universuri ────────────────────────────────────────────────────────────
 python src/main.py --universe nasdaq100 --profile buffett_quality --workers 8
+python src/main.py --universe dow30 --workers 6 --export csv
+python src/main.py --universe russell2000 --profile deep_value --workers 10    # NOU v3
+python src/main.py --universe eurostoxx50 --profile buffett_quality --workers 8  # NOU v3
+python src/main.py --universe bet --profile dividend_growth --workers 4          # NOU v3
 
-# Tickere custom dintr-un CSV
+# ── Custom CSV ─────────────────────────────────────────────────────────────────
 python src/main.py --universe custom --csv-path my_tickers.csv --profile deep_value
 
 # ── Rapoarte HTML ─────────────────────────────────────────────────────────────
-
-# Raport CONSOLIDAT (toate profilurile + backtest) — recomandat
-python scripts/export_full_report.py
-
-# Raport individual (auto-detectează cel mai recent CSV)
-python scripts/export_html_report.py
-
-# Raport individual din CSV specific
-python scripts/export_html_report.py --csv data/reports/<timestamp>_deep_value.csv
+python scripts/export_full_report.py                          # consolidat + auto-push GitHub Pages
+python scripts/export_html_report.py                          # individual (ultimul CSV)
+python scripts/export_html_report.py --csv data/reports/<ts>_deep_value.csv
 
 # ── Backtesting ───────────────────────────────────────────────────────────────
-
 python src/main.py --universe sp500 --profile deep_value \
   --backtest --backtest-start 2021 --backtest-end 2024 \
   --backtest-top-n 10 --workers 6 --export csv
 
-# ── Dashboard interactiv ──────────────────────────────────────────────────────
-
-streamlit run dashboard/app.py
-
 # ── Parametri DCF personalizați ───────────────────────────────────────────────
-
 python src/main.py --universe sp500 --profile deep_value \
   --dcf-growth 0.04 \
   --dcf-discount 0.09 \
@@ -492,13 +576,13 @@ python src/main.py --universe sp500 --profile deep_value \
 
 ```
 Universe & Date
-  --universe      sp500 | nasdaq100 | dow30 | world | custom   (default: world)
+  --universe      sp500 | nasdaq100 | dow30 | russell2000 | eurostoxx50 | bet | world | custom
   --csv-path      CSV cu coloana 'ticker'; necesar când --universe custom
   --workers       Fire de execuție paralele                     (default: 8)
   --rps           Requests per secundă Yahoo Finance            (default: 2.0)
 
 Screener
-  --profile       deep_value | buffett_quality | high_fcf_yield | quality_value
+  --profile       deep_value | buffett_quality | high_fcf_yield | quality_value | dividend_growth
 
 Export
   --export        csv | excel | both | none                     (default: csv)
@@ -509,53 +593,59 @@ Backtest
   --backtest-end   YEAR       Ultimul an (default: 2024)
   --backtest-top-n N          Câte companii în portofoliu       (default: 10)
   --backtest-benchmark TICKER Benchmark (default: ^GSPC)
+
+DCF (toți cu prefix --dcf-)
+  --dcf-growth     Rata creștere FCF (default: 0.05)
+  --dcf-discount   Rata de discount / WACC (default: 0.10)
+  --dcf-terminal   Rata creștere terminală (default: 0.025)
+  --dcf-years      Ani proiecție (default: 10)
+  --dcf-exit-multiple  Multiplu EV/EBITDA terminal (default: 12.0)
 ```
 
 ---
 
 ## Structura bazei de date
 
-Datele sunt stocate în `data/cache.duckdb` (~53 MB, gitignored, creat automat).
+Datele sunt stocate în `data/cache.duckdb` (gitignored, creat automat).
 
 ```
-Tabelă              Rânduri     Tickers   Ce conține
-─────────────────────────────────────────────────────────────────────
-ticker_info            502        502     Snapshot curent per companie
-                                          (preț, P/E, P/B, FCF, datorii,
-                                          beta, ROE, ROA, dividende,
-                                          52w low/high, sector, industrie)
+Tabelă              Ce conține
+────────────────────────────────────────────────────────────────────
+ticker_info         Snapshot curent per companie:
+                    preț, P/E, P/B, FCF, datorii, beta, ROE, ROA,
+                    gross_margin, operating_margin, dividende,
+                    52w low/high, sector, industrie
 
-financials           2,375        502     Cont de profit: 5 ani anuali
-                                          (venituri, profit brut, EBIT,
-                                          profit net per companie)
+financials          Cont de profit: 5 ani anuali
+                    (venituri, profit brut, EBIT, profit net)
 
-balance_sheet        2,456        502     Bilanț: 5 ani anuali
-                                          (active totale, pasive, datorii,
-                                          cash, equity acționari)
+balance_sheet       Bilanț: 5 ani anuali
+                    (active totale, pasive, datorii, cash, equity)
 
-cashflow             2,467        502     Cashflow: 5 ani anuali
-                                          (CFO, CapEx, FCF per companie)
+cashflow            Cashflow: 5 ani anuali
+                    (CFO, CapEx, FCF, stock_based_compensation)
 
-price_history      678,754        541     Prețuri zilnice de închidere
-                                          (2020–prezent, pentru backtest)
+price_history       Prețuri zilnice de închidere (backtest)
 
-macro_data               1          —     us_10y_yield = 4.706%
-                                          (rata risk-free pentru WACC/DCF)
+ohlcv_cache         OHLCV zilnic (Why-Buy charts, TTL 1 zi)
+
+macro_data          us_10y_yield (rata risk-free pentru WACC/DCF)
+
+score_history       Evoluție scor compozit per ticker în timp
+                    (alimentat la fiecare rulare main.py)
 ```
 
 ### Politica de refresh
-
-**La fiecare rulare, datele sunt re-descărcate fresh** — nu există cache persistent
-pentru prețuri și fundamentale. Singura excepție: `price_history` se păstrează 1 zi
-(prețurile istorice nu se schimbă niciodată).
 
 ```
 ticker_info     → TTL: 0  (mereu fresh)
 financials      → TTL: 0  (mereu fresh)
 balance_sheet   → TTL: 0  (mereu fresh)
 cashflow        → TTL: 0  (mereu fresh)
+ohlcv_cache     → TTL: 1 zi
 price_history   → TTL: 1 zi (closes istorice nu se schimbă)
-macro_data      → TTL: 1 zi (randamentul US 10Y se actualizează zilnic)
+macro_data      → TTL: 1 zi
+score_history   → append-only (nu se șterg înregistrările vechi)
 ```
 
 ---
@@ -566,60 +656,66 @@ macro_data      → TTL: 1 zi (randamentul US 10Y se actualizează zilnic)
 UndervaluedStocks/
 │
 ├── src/
-│   ├── universe.py       Asamblare universe: S&P 500, NASDAQ-100, Dow 30,
-│   │                     world, custom CSV; scraping Wikipedia cu UA fix
+│   ├── universe.py       Universuri: S&P 500, NASDAQ-100, Dow 30,
+│   │                     Russell 2000, Euro Stoxx 50, BET Romania,
+│   │                     World, Custom CSV; scraping Wikipedia + fallback
 │   │
-│   ├── fetcher.py        Pipeline paralel de date: DuckDB cache thread-safe
-│   │                     (Lock pe toate operațiile), throttle configurabil,
-│   │                     retry exponential, auto-migration scheme, TTL=0
+│   ├── fetcher.py        Pipeline paralel: DuckDB cache thread-safe,
+│   │                     throttle, retry exponential, auto-migration,
+│   │                     score_history append, SBC în cashflow schema
 │   │
-│   ├── engine.py         Motor de evaluare: multipli, GGM DCF, Exit Multiple,
-│   │                     DDM fallback, Piotroski, Altman Z, ROIC, WACC dinamic,
-│   │                     Sustainable Growth Rate, Composite Score 0–100
+│   ├── engine.py         Motor evaluare: multipli, GGM DCF, Exit Multiple,
+│   │                     Graham Number, DDM fallback, Piotroski, Altman Z,
+│   │                     ROIC, WACC dinamic, Beneish M-Score, SBC/FCF,
+│   │                     share dilution, dividend metrics, sector percentiles,
+│   │                     ROE, ROA, Beta, Gross/Operating Margin
 │   │
-│   ├── screener.py       4 profile predefinite + Dow 30 ranking; gardă multipli
-│   │                     negativi (P/B < 0 exclus); filtru Altman Z la 1.0
+│   ├── screener.py       5 profile predefinite + compute_sector_percentiles
+│   │                     + apply_magic_formula; 30+ coloane output
 │   │
-│   ├── backtester.py     Walk-forward backtest anual vs benchmark; CAGR,
-│   │                     Sharpe, Sortino, MaxDD, Win Rate; rezolvare
-│   │                     nearest-trading-day pentru weekend/holiday
+│   ├── backtester.py     Walk-forward backtest anual vs benchmark
 │   │
-│   └── main.py           CLI (argparse) + wizard interactiv; output ASCII-safe
-│                         (Windows cp1252 compatible); toate profilele disponibile
+│   └── main.py           CLI: 8 universuri, 5 profile, DCF params
 │
 ├── scripts/
-│   ├── export_full_report.py   Raport HTML consolidat: toate profilurile +
-│   │                           backtest + Dow 30 + Why buy + Top Convictions;
-│   │                           table-layout:fixed, fără scrollbars, PDF-ready
+│   ├── export_full_report.py   Raport HTML consolidat:
+│   │                           • Filter bars live (ST12)
+│   │                           • Watchlist + localStorage (ST13)
+│   │                           • DCF Sensitivity Matrix (ST3)
+│   │                           • Beneish badges (ST4)
+│   │                           • Score sparklines (ST9)
+│   │                           • Magic Formula section (ST7)
+│   │                           • Auto-push GitHub Pages
 │   │
-│   ├── export_html_report.py   Raport HTML individual (deep_value / dow30)
+│   ├── export_html_report.py   Raport HTML individual
 │   └── gen_global_tickers.py   Regenerează data/global_tickers.csv
 │
-├── dashboard/
-│   ├── app.py            Streamlit: slidere DCF live, tabel sortabil,
-│   │                     chart composite score, pie sector, matrix 3×3
-│   └── run.py            Launcher convenience
-│
 ├── tests/
-│   ├── unit/             258 teste unitare (mocked, fără internet)
-│   │   ├── test_universe.py
-│   │   ├── test_fetcher.py     incl. TestFetchHistoricalPricesNearestDate
-│   │   ├── test_engine.py      incl. Piotroski, Altman, ROIC, WACC, DDM
-│   │   ├── test_screener.py    incl. negative P/B guard, Altman threshold
+│   ├── unit/             339 teste unitare (mocked, fără internet)
+│   │   ├── test_universe.py    incl. Russell2000, EuroStoxx50, BET (ST10, ST11)
+│   │   ├── test_fetcher.py     incl. TestScoreHistory (ST9)
+│   │   ├── test_engine.py      incl. Graham Number (ST2), Beneish (ST4),
+│   │   │                             SBC/dilution (ST5), dividend metrics (ST6),
+│   │   │                             ROE/ROA/Beta/GrossMargin (ST1)
+│   │   ├── test_screener.py    incl. ROE filter, Magic Formula (ST7),
+│   │   │                             Sector percentiles (ST8), DividendGrowth (ST6)
 │   │   ├── test_backtester.py
 │   │   └── test_dashboard_imports.py
 │   │
-│   └── integration/      Teste reale (necesită internet): --pytest -m integration
+│   └── integration/      Teste reale (necesită internet): pytest -m integration
 │
 ├── data/
-│   ├── global_tickers.csv    ~552 tickere internaționale curate (în git)
-│   ├── cache.duckdb          Cache DuckDB local (gitignored, creat automat)
+│   ├── global_tickers.csv    ~552 tickere internaționale (în git)
+│   ├── cache.duckdb          Cache DuckDB local (gitignored)
 │   └── reports/              CSV / Excel / HTML (gitignored)
+│
+├── docs/
+│   └── index.html            GitHub Pages (auto-generat de export_full_report.py)
 │
 ├── config/
 │   └── screener_profiles.yaml   Override YAML opțional pentru praguri
 │
-├── v2-improvements-plan.md   Plan complet v2 (Faze 1–5, toate implementate)
+├── v3-improvements-plan.md   Plan complet v3 (toate 13 sub-task-uri)
 ├── requirements.txt
 ├── pytest.ini
 └── README.md
@@ -631,26 +727,32 @@ UndervaluedStocks/
 
 | Limitare | Detaliu |
 |---|---|
-| **Date actuale, nu istorice** | Screener-ul folosește fundamentalele *curente*. Nu știe cum arătau situațiile financiare ale companiei în 2021. |
-| **Fără analiză calitativă** | Managementul, moat-ul, poziția competitivă, reglementările — invizibile pentru algoritm. |
-| **DCF sensibil la ipoteze** | O schimbare de 2% în rata de discount mișcă valoarea intrinsecă cu 20–40%. Folosiți DCF ca orientare, nu ca certitudine. |
-| **Sectorul financiar** | Băncile și asigurătorii au structuri de cashflow neobișnuite. Sistemul rutează automat spre DDM pentru aceste companii, dar MoS-ul e mai puțin precis. |
-| **Backtesting look-ahead** | Backtestul folosește datele curente pentru toți anii istorici — rezultatele sunt optimiste vs realitate. |
-| **Survivorship bias** | Universul conține doar companiile *actuale* din S&P 500 — companiile delistate din 2018 încoace lipsesc. |
+| **Date actuale, nu istorice** | Screener-ul folosește fundamentalele *curente*. |
+| **Fără analiză calitativă** | Managementul, moat-ul, poziția competitivă — invizibile. |
+| **DCF sensibil la ipoteze** | O schimbare de 2% în rata de discount mișcă valoarea cu 20–40%. |
+| **Sectorul financiar** | Băncile/asigurătorii rutați automat spre DDM, MoS mai puțin precis. |
+| **Backtesting look-ahead** | Backtestul folosește datele curente pentru toți anii istorici. |
+| **Survivorship bias** | Universul conține doar companiile *actuale* din index. |
+| **Beneish DEPI/SGAI** | Setate neutral (1.0) — datele granulare de depreciere nu sunt în yfinance. |
+| **Piețe europene** | yfinance acoperire variabilă pentru `.RO`; unele BET tickers pot lipsi. |
+| **Russell 2000** | Wikipedia nu listează toți 2000 constituenți — se folosește fallback 50 tickers. |
 
 ---
 
 ## Rularea testelor
 
 ```bash
-# Teste unitare — rapide, mocked, fără internet (258 teste)
-pytest
+# Toate testele unitare — rapide, mocked, fără internet (339 teste)
+pytest tests/unit/ -q
+
+# Verbose cu coverage
+pytest tests/unit/ -v
 
 # Teste de integrare — necesită internet (~60 sec)
 pytest -m integration
 
-# Toate testele
-pytest -m ""
+# Test specific
+pytest tests/unit/test_universe.py -v -k "russell2000"
 ```
 
 ---
@@ -677,3 +779,10 @@ MIT — liber de utilizat, modificat și distribuit. **Nu constituie sfat financ
 
 > *"The stock market is a device for transferring money from the impatient to the patient."*
 > — Warren Buffett
+
+> *"Price is what you pay. Value is what you get."*
+> — Warren Buffett
+
+---
+
+**GitHub Pages (live report):** https://um01932.github.io/undervalued-stocks/

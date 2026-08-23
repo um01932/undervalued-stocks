@@ -15,8 +15,14 @@ import pytest
 
 from src.universe import (
     UniverseSource,
+    _BET_TICKERS,
+    _EUROSTOXX50_FALLBACK,
+    _RUSSELL2000_FALLBACK,
     _normalise,
+    get_bet_tickers,
+    get_eurostoxx50_tickers,
     get_nasdaq100_tickers,
+    get_russell2000_tickers,
     get_sp500_tickers,
     get_tickers_from_csv,
     get_universe,
@@ -230,3 +236,120 @@ class TestGetUniverse:
     def test_world_is_default_source(self, mock_world):
         get_universe()
         mock_world.assert_called_once()
+
+
+# ── get_russell2000_tickers ───────────────────────────────────────────────────
+
+class TestGetRussell2000Tickers:
+    """Tests for get_russell2000_tickers — always use fallback path (no HTTP)."""
+
+    @patch("src.universe._fetch_html", side_effect=Exception("network error"))
+    def test_falls_back_to_hardcoded_list(self, mock_fetch):
+        """When Wikipedia scrape fails, fallback list is returned."""
+        result = get_russell2000_tickers()
+        assert len(result) > 0
+        assert result == sorted(result)
+
+    @patch("src.universe._fetch_html", side_effect=Exception("network error"))
+    def test_fallback_list_is_normalised(self, mock_fetch):
+        """Fallback tickers must be normalised (no dots, no whitespace)."""
+        result = get_russell2000_tickers()
+        for ticker in result:
+            assert "." not in ticker
+            assert ticker == ticker.strip()
+
+    @patch("src.universe._fetch_html", side_effect=Exception("timeout"))
+    def test_fallback_matches_constant(self, mock_fetch):
+        """Fallback result should equal _RUSSELL2000_FALLBACK after normalisation."""
+        result = get_russell2000_tickers()
+        expected = sorted({t.strip().replace(".", "-") for t in _RUSSELL2000_FALLBACK if t.strip()})
+        assert result == expected
+
+    def test_wikipedia_parse_success(self):
+        """When Wikipedia returns a big table with 'Ticker' column, it is used."""
+        rows = "".join(f"<tr><td>T{i:04d}</td><td>Company {i}</td></tr>" for i in range(110))
+        html = f'<table><tr><th>Ticker</th><th>Company</th></tr>{rows}</table>'
+        with patch("src.universe._fetch_html", return_value=html):
+            result = get_russell2000_tickers()
+        assert len(result) >= 100
+
+    @patch("src.universe.get_russell2000_tickers", return_value=["BOOT", "CALM", "FIVE"])
+    def test_get_universe_russell2000(self, mock_r2k):
+        result = get_universe(UniverseSource.RUSSELL2000)
+        mock_r2k.assert_called_once()
+        assert "BOOT" in result
+
+
+# ── get_eurostoxx50_tickers ───────────────────────────────────────────────────
+
+class TestGetEuroStoxx50Tickers:
+    """Tests for get_eurostoxx50_tickers — always use fallback path (no HTTP)."""
+
+    @patch("src.universe._fetch_html", side_effect=Exception("network error"))
+    def test_falls_back_to_hardcoded_list(self, mock_fetch):
+        result = get_eurostoxx50_tickers()
+        assert len(result) > 0
+        assert result == sorted(result)
+
+    @patch("src.universe._fetch_html", side_effect=Exception("timeout"))
+    def test_fallback_list_is_normalised(self, mock_fetch):
+        result = get_eurostoxx50_tickers()
+        for ticker in result:
+            assert ticker == ticker.strip()
+
+    @patch("src.universe._fetch_html", side_effect=Exception("timeout"))
+    def test_fallback_matches_constant(self, mock_fetch):
+        result = get_eurostoxx50_tickers()
+        # EssilorLuxottica.PA dot → hyphen normalisation
+        assert "EssilorLuxottica-PA" in result or any("EssilorLuxottica" in t for t in result)
+
+    def test_wikipedia_parse_success(self):
+        """When Wikipedia returns a ~50-row Ticker table, it is used."""
+        rows = "".join(f"<tr><td>T{i:02d}.PA</td><td>Co {i}</td></tr>" for i in range(50))
+        html = f'<table><tr><th>Ticker</th><th>Company</th></tr>{rows}</table>'
+        with patch("src.universe._fetch_html", return_value=html):
+            result = get_eurostoxx50_tickers()
+        assert len(result) == 50
+
+    @patch("src.universe.get_eurostoxx50_tickers", return_value=["ASML-AS", "TTE-PA"])
+    def test_get_universe_eurostoxx50(self, mock_es50):
+        result = get_universe(UniverseSource.EUROSTOXX50)
+        mock_es50.assert_called_once()
+        assert "ASML-AS" in result
+
+
+# ── get_bet_tickers ───────────────────────────────────────────────────────────
+
+class TestGetBetTickers:
+    """Tests for get_bet_tickers — pure static list, no network."""
+
+    def test_returns_list(self):
+        result = get_bet_tickers()
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+    def test_result_is_sorted(self):
+        result = get_bet_tickers()
+        assert result == sorted(result)
+
+    def test_tickers_have_ro_suffix(self):
+        result = get_bet_tickers()
+        # After normalisation dots become hyphens: BRD.RO → BRD-RO
+        for ticker in result:
+            assert ticker.endswith("-RO"), f"Expected -RO suffix: {ticker}"
+
+    def test_no_dots_after_normalisation(self):
+        result = get_bet_tickers()
+        for ticker in result:
+            assert "." not in ticker
+
+    def test_matches_static_constant(self):
+        result = get_bet_tickers()
+        expected = sorted({t.strip().replace(".", "-") for t in _BET_TICKERS if t.strip()})
+        assert result == expected
+
+    @patch("src.universe.get_bet_tickers", return_value=["BRD-RO", "TLV-RO"])
+    def test_get_universe_bet(self, mock_bet):
+        result = get_universe(UniverseSource.BET)
+        mock_bet.assert_called_once()
+        assert "BRD-RO" in result

@@ -4,6 +4,9 @@ universe.py — Stock universe assembly.
 Provides functions to retrieve ticker lists from:
   - S&P 500 (Wikipedia scrape)
   - NASDAQ-100 (Wikipedia scrape)
+  - Russell 2000 (Wikipedia scrape + iShares fallback)
+  - Euro Stoxx 50 (Wikipedia scrape + hardcoded fallback)
+  - BET Romania (hardcoded static list)
   - World (bundled global_tickers.csv — zero network call)
   - Custom CSV file supplied by the user
 
@@ -34,6 +37,9 @@ __all__ = [
     "get_sp500_tickers",
     "get_nasdaq100_tickers",
     "get_dow30_tickers",
+    "get_russell2000_tickers",
+    "get_eurostoxx50_tickers",
+    "get_bet_tickers",
     "get_world_tickers",
     "get_tickers_from_csv",
     "get_universe",
@@ -46,9 +52,11 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _GLOBAL_CSV = _DATA_DIR / "global_tickers.csv"
 
-_SP500_URL    = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-_NASDAQ100_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
-_DOW30_URL    = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+_SP500_URL      = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+_NASDAQ100_URL  = "https://en.wikipedia.org/wiki/Nasdaq-100"
+_DOW30_URL      = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+_RUSSELL2000_URL = "https://en.wikipedia.org/wiki/Russell_2000_Index"
+_EUROSTOXX50_URL = "https://en.wikipedia.org/wiki/Euro_Stoxx_50"
 
 # Hardcoded Dow 30 as a reliable fallback (updated August 2026)
 _DOW30_FALLBACK = [
@@ -57,15 +65,47 @@ _DOW30_FALLBACK = [
     "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "TRV", "UNH", "V", "VZ", "WMT",
 ]
 
+# Hardcoded Russell 2000 fallback — ~50 well-known small-cap members (August 2026)
+_RUSSELL2000_FALLBACK = [
+    "ACLS", "ACMR", "AEIS", "AGIO", "AGYS", "ALRM", "AMN", "AMSF", "AMWD",
+    "APAM", "ARCO", "ARLO", "ATRC", "BOOT", "CALM", "CATO", "CENT", "CENTA",
+    "CHCO", "CODI", "CONN", "CPRX", "DAKT", "DCOM", "DIOD", "EFC", "ENVA",
+    "EVRI", "FBIZ", "FIVE", "FLGT", "FORM", "GFF", "GRWG", "HCSG", "HIFS",
+    "HNI", "HOPE", "HTLD", "HUBG", "IIIV", "INVA", "IPAR", "JBSS", "KFRC",
+    "KINS", "LAKE", "LANC", "LAWS", "LCNB",
+]
+
+# Hardcoded Euro Stoxx 50 fallback (August 2026 constituents, yfinance suffix)
+_EUROSTOXX50_FALLBACK = [
+    "ABI.BR", "AD.AS", "ADS.DE", "AI.PA", "AIR.PA", "ALV.DE", "ASML.AS",
+    "AXA.PA", "BAS.DE", "BAYN.DE", "BBVA.MC", "BMW.DE", "BNP.PA", "CRH.IR",
+    "CS.PA", "DG.PA", "DTE.DE", "ENEL.MI", "ENI.MI", "EssilorLuxottica.PA",
+    "EL.PA", "FLTR.IR", "FME.DE", "FRE.DE", "GS.MI", "IBE.MC", "IFX.DE",
+    "INGA.AS", "ISP.MI", "ITX.MC", "KER.PA", "LIN.DE", "MC.PA", "MBG.DE",
+    "ML.PA", "MRK.DE", "MUV2.DE", "NOKIA.HE", "OR.PA", "ORA.PA", "PHIA.AS",
+    "PRX.AS", "RMS.PA", "SAN.MC", "SAN.PA", "SAP.DE", "SGO.PA", "SIE.DE",
+    "TTE.PA", "UCG.MI",
+]
+
+# Hardcoded BET Romania tickers — static list (BET index, ~20 liquid members)
+_BET_TICKERS = [
+    "BRD.RO", "TLV.RO", "SNP.RO", "SNG.RO", "FP.RO", "TGN.RO",
+    "COTE.RO", "BVB.RO", "M.RO", "EL.RO", "SNN.RO", "TEL.RO",
+    "DIGI.RO", "ONE.RO", "TRP.RO", "WINE.RO", "TRANSELM.RO", "AQ.RO",
+]
+
 
 # ── Enum ──────────────────────────────────────────────────────────────────────
 
 class UniverseSource(StrEnum):
-    SP500    = "sp500"
-    NASDAQ100 = "nasdaq100"
-    DOW30    = "dow30"
-    WORLD    = "world"
-    CUSTOM   = "custom"
+    SP500       = "sp500"
+    NASDAQ100   = "nasdaq100"
+    DOW30       = "dow30"
+    RUSSELL2000 = "russell2000"
+    EUROSTOXX50 = "eurostoxx50"
+    BET         = "bet"
+    WORLD       = "world"
+    CUSTOM      = "custom"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,6 +190,91 @@ def get_nasdaq100_tickers() -> list[str]:
         raise RuntimeError(f"Failed to fetch NASDAQ-100 tickers: {exc}") from exc
     result = _normalise(tickers)
     logger.info("NASDAQ-100: %d tickers retrieved.", len(result))
+    return result
+
+
+def get_russell2000_tickers() -> list[str]:
+    """
+    Return the current Russell 2000 constituent list.
+
+    Primary: scrapes the Wikipedia Russell 2000 Index page looking for any
+    table that has a 'Ticker' or 'Symbol' column with >100 rows.
+    Fallback: returns the hardcoded _RUSSELL2000_FALLBACK list of ~50 names.
+
+    Returns:
+        Sorted, normalised list of ticker symbols.
+    """
+    logger.info("Fetching Russell 2000 tickers …")
+    try:
+        import io as _io
+        html = _fetch_html(_RUSSELL2000_URL)
+        tables = pd.read_html(_io.StringIO(html))
+        for table in tables:
+            cols = [str(c).strip() for c in table.columns]
+            for col in ("Ticker", "Symbol", "ticker", "symbol"):
+                if col in cols and len(table) > 100:
+                    tickers: list[str] = table[col].dropna().tolist()
+                    result = _normalise(tickers)
+                    if len(result) > 100:
+                        logger.info("Russell 2000: %d tickers from Wikipedia.", len(result))
+                        return result
+        raise ValueError("No large-enough table with Ticker/Symbol column found.")
+    except Exception as exc:
+        logger.warning(
+            "Russell 2000 Wikipedia scrape failed (%s) — using hardcoded fallback list.", exc
+        )
+        result = _normalise(_RUSSELL2000_FALLBACK)
+        logger.info("Russell 2000: %d tickers loaded from fallback.", len(result))
+        return result
+
+
+def get_eurostoxx50_tickers() -> list[str]:
+    """
+    Return the current Euro Stoxx 50 constituent list.
+
+    Primary: scrapes the Wikipedia Euro Stoxx 50 page looking for a table
+    that has a 'Ticker' or 'Symbol' column with ~50 rows.
+    Fallback: returns the hardcoded _EUROSTOXX50_FALLBACK list.
+
+    Returns:
+        Sorted, normalised list of ticker symbols (with exchange suffix, e.g. 'ASML.AS').
+    """
+    logger.info("Fetching Euro Stoxx 50 tickers …")
+    try:
+        import io as _io
+        html = _fetch_html(_EUROSTOXX50_URL)
+        tables = pd.read_html(_io.StringIO(html))
+        for table in tables:
+            cols = [str(c).strip() for c in table.columns]
+            for col in ("Ticker", "Symbol", "ticker", "symbol"):
+                if col in cols and 30 <= len(table) <= 70:
+                    tickers: list[str] = table[col].dropna().tolist()
+                    result = _normalise(tickers)
+                    if 30 <= len(result) <= 70:
+                        logger.info("Euro Stoxx 50: %d tickers from Wikipedia.", len(result))
+                        return result
+        raise ValueError("No ~50-row table with Ticker/Symbol column found.")
+    except Exception as exc:
+        logger.warning(
+            "Euro Stoxx 50 Wikipedia scrape failed (%s) — using hardcoded fallback list.", exc
+        )
+        result = _normalise(_EUROSTOXX50_FALLBACK)
+        logger.info("Euro Stoxx 50: %d tickers loaded from fallback.", len(result))
+        return result
+
+
+def get_bet_tickers() -> list[str]:
+    """
+    Return BET (Bucharest Exchange Trading) index tickers.
+
+    The BET index is small (~18-25 liquid members) and not reliably scraped
+    from a public URL, so a hardcoded static list is used.
+
+    Returns:
+        Sorted, normalised list of ticker symbols (e.g. 'BRD.RO').
+    """
+    result = _normalise(_BET_TICKERS)
+    logger.info("BET: %d tickers loaded from static list.", len(result))
     return result
 
 
@@ -276,6 +401,12 @@ def get_universe(
             return get_nasdaq100_tickers()
         case UniverseSource.DOW30:
             return get_dow30_tickers()
+        case UniverseSource.RUSSELL2000:
+            return get_russell2000_tickers()
+        case UniverseSource.EUROSTOXX50:
+            return get_eurostoxx50_tickers()
+        case UniverseSource.BET:
+            return get_bet_tickers()
         case UniverseSource.WORLD:
             return get_world_tickers()
         case UniverseSource.CUSTOM:

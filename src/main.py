@@ -57,7 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--universe",
-        choices=["sp500", "nasdaq100", "dow30", "world", "custom"],
+        choices=["sp500", "nasdaq100", "dow30", "russell2000", "eurostoxx50", "bet", "world", "custom"],
         default="world",
         help="Stock universe to screen.",
     )
