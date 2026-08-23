@@ -610,7 +610,7 @@ def run(args: argparse.Namespace) -> None:
 
     for profile_name in profiles_to_run:
         profile: ScreenerProfile = profiles.get(profile_name, next(iter(profiles.values())))
-        console.print(f"\n[bold cyan]── Profile: {profile_name} ──[/bold cyan]")
+        console.print(f"\n[bold cyan]--- Profile: {profile_name} ---[/bold cyan]")
 
         # rank_all: ALL companies with ProfileFit score; apply_profile: strict-pass only
         df          = rank_all(valuation_results, profile)
@@ -621,7 +621,7 @@ def run(args: argparse.Namespace) -> None:
             render_table(df_filtered)
         passes = df["Passes"].sum() if "Passes" in df.columns else 0
         console.print(
-            f"[dim]{passes} PASS · {len(df)} ranked · profile=[cyan]{profile_name}[/cyan][/dim]"
+            f"[dim]{passes} PASS | {len(df)} ranked | profile=[cyan]{profile_name}[/cyan][/dim]"
         )
 
         # Export
@@ -652,7 +652,7 @@ def run(args: argparse.Namespace) -> None:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             mf_path = _REPORTS_DIR / f"{ts}_magic_formula.csv"
             mf_df.to_csv(mf_path, index=False)
-            console.print(f"\n[green]Magic Formula:[/green] {len(mf_df)} companies → {mf_path.name}")
+            console.print(f"\n[green]Magic Formula:[/green] {len(mf_df)} companies saved to {mf_path.name}")
         else:
             console.print("\n[dim]Magic Formula: no eligible companies (check ROIC/PE data).[/dim]")
 
