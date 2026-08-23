@@ -120,6 +120,9 @@ class ValuationResult(BaseModel):
     # Dividend metrics (Sub-Task 6)
     dividend_yield: Optional[float] = None   # e.g. 0.035 = 3.5%
     payout_ratio_fcf: Optional[float] = None # dividends paid / avg_fcf_3y
+    sbc_to_fcf_pct: Optional[float] = None   # SBC as % of reported FCF (red flag if > 30%)
+    sbc_adjusted_fcf: Optional[float] = None # FCF - avg_sbc_3y (per share)
+    shares_dilution_pct: Optional[float] = None  # YoY share count change % (positive = diluting)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -940,6 +943,34 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         if avg_fcf > 0:
             payout_ratio_fcf_v = round(total_divs / avg_fcf, 4)
 
+    sbc_vals = []
+    for cf in data.cashflow[:3]:
+        sbc = _safe_val(cf.get("stock_based_compensation"))
+        if sbc is not None and sbc > 0:
+            sbc_vals.append(sbc)
+
+    fcf_vals_raw = [
+        _safe_val(cf.get("free_cash_flow"))
+        for cf in data.cashflow[:3]
+        if _safe_val(cf.get("free_cash_flow")) is not None
+    ]
+
+    sbc_to_fcf_pct_v: Optional[float] = None
+    sbc_adjusted_fcf_v: Optional[float] = None
+    if sbc_vals and fcf_vals_raw:
+        avg_sbc = sum(sbc_vals) / len(sbc_vals)
+        avg_fcf = sum(fcf_vals_raw) / len(fcf_vals_raw)
+        if avg_fcf > 0:
+            sbc_to_fcf_pct_v = round(avg_sbc / avg_fcf * 100, 1)
+        if shares_v and shares_v > 0:
+            sbc_adjusted_fcf_v = round((avg_fcf - avg_sbc) / shares_v, 2)
+
+    shares_dilution_pct_v: Optional[float] = None
+    shares_now = _safe_val(data.info.get("sharesOutstanding"))
+    shares_3y = _safe_val(data.info.get("impliedSharesOutstanding"))
+    if shares_now and shares_3y and shares_3y > 0:
+        shares_dilution_pct_v = round((shares_now / shares_3y - 1) * 100, 2)
+
     result = ValuationResult(
         ticker=data.ticker,
         company_name=info.get("short_name"),
@@ -978,6 +1009,9 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         operating_margin=operating_margin_v,
         dividend_yield=dividend_yield_v,
         payout_ratio_fcf=payout_ratio_fcf_v,
+        sbc_to_fcf_pct=sbc_to_fcf_pct_v,
+        sbc_adjusted_fcf=sbc_adjusted_fcf_v,
+        shares_dilution_pct=shares_dilution_pct_v,
     )
     from src.screener import compute_composite_score  # late import to avoid circular dep
     result.composite_score = compute_composite_score(result)

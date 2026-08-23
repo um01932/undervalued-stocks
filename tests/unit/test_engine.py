@@ -783,7 +783,7 @@ class TestEvaluateQualityFields:
 
 # ── compute_composite_score ───────────────────────────────────────────────────
 
-from src.screener import compute_composite_score
+from src.screener import ScreenerProfile, _passes_filter, compute_composite_score
 
 
 class TestComputeCompositeScore:
@@ -1395,3 +1395,56 @@ class TestPayoutRatioFcf:
         data = _make_ticker_data()   # no dividendYield key
         result = evaluate(data, DEFAULT_PARAMS)
         assert result.dividend_yield is None
+
+
+class TestSBCAdjustment:
+    def test_sbc_to_fcf_pct_computed(self):
+        info = _make_info()
+        info["sharesOutstanding"] = 10e9
+        data = TickerData(
+            ticker="SBC1",
+            info=info,
+            cashflow=[
+                {"period_date": "2023-09-30", "free_cash_flow": 100e9, "stock_based_compensation": 20e9},
+                {"period_date": "2022-09-30", "free_cash_flow": 80e9, "stock_based_compensation": 20e9},
+                {"period_date": "2021-09-30", "free_cash_flow": 120e9, "stock_based_compensation": 20e9},
+            ],
+            financials=[{"period_date": "2023-09-30", "total_revenue": 400e9, "gross_profit": 160e9, "ebit": 120e9, "net_income": 100e9}],
+            balance_sheet=[{"period_date": "2023-09-30", "total_assets": 350e9, "total_liabilities": 250e9, "total_debt": 110e9, "total_cash": 50e9, "stockholders_equity": 100e9}],
+        )
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.sbc_to_fcf_pct == pytest.approx(20.0)
+
+    def test_sbc_to_fcf_pct_none_when_no_sbc(self):
+        info = _make_info()
+        info["sharesOutstanding"] = 10e9
+        data = _make_ticker_data(info=info, cf_values=[100e9, 80e9, 120e9])
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.sbc_to_fcf_pct is None
+
+    def test_sbc_adjusted_fcf_computed(self):
+        info = _make_info()
+        info["sharesOutstanding"] = 10e9
+        data = TickerData(
+            ticker="SBC2",
+            info=info,
+            cashflow=[
+                {"period_date": "2023-09-30", "free_cash_flow": 100e9, "stock_based_compensation": 20e9},
+                {"period_date": "2022-09-30", "free_cash_flow": 80e9, "stock_based_compensation": 20e9},
+                {"period_date": "2021-09-30", "free_cash_flow": 120e9, "stock_based_compensation": 20e9},
+            ],
+            financials=[{"period_date": "2023-09-30", "total_revenue": 400e9, "gross_profit": 160e9, "ebit": 120e9, "net_income": 100e9}],
+            balance_sheet=[{"period_date": "2023-09-30", "total_assets": 350e9, "total_liabilities": 250e9, "total_debt": 110e9, "total_cash": 50e9, "stockholders_equity": 100e9}],
+        )
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.sbc_adjusted_fcf == pytest.approx(8.0)
+
+    def test_max_sbc_filter_passes(self):
+        result = ValuationResult(ticker="PASS", status="OK", sbc_to_fcf_pct=20.0)
+        profile = ScreenerProfile(name="test", max_sbc_to_fcf_pct=30.0)
+        assert _passes_filter(result, profile) is True
+
+    def test_max_sbc_filter_fails(self):
+        result = ValuationResult(ticker="FAIL", status="OK", sbc_to_fcf_pct=40.0)
+        profile = ScreenerProfile(name="test", max_sbc_to_fcf_pct=30.0)
+        assert _passes_filter(result, profile) is False

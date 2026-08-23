@@ -826,6 +826,7 @@ def _why_buy(row: dict, profile_key: str | None = None,
     # ── Sentence 8e: Dividend yield + FCF payout ─────────────────────────────
     div_y   = _fv(row.get("Dividend Yield%", ""))
     payout_v = _fv(row.get("Payout (FCF)%", ""))
+    sbc_pct = _fv(row.get("SBC/FCF%", ""))
     if div_y is not None and div_y > 0:
         if payout_v is not None and payout_v < 70:
             sentences.append(
@@ -837,6 +838,20 @@ def _why_buy(row: dict, profile_key: str | None = None,
             sentences.append(
                 f"{ticker} offers a <strong>{div_y:.1f}% dividend yield</strong>."
             )
+
+    if sbc_pct is not None and sbc_pct > 25:
+        sentences.append(
+            f'<span style="color:#d97706;font-weight:700">⚠ SBC Note:</span> '
+            f"Stock-based compensation equals <strong>{sbc_pct:.0f}% of free cash flow</strong>. "
+            f"Reported FCF includes this non-cash add-back — true shareholder cash generation "
+            f"is proportionally lower. This is common in tech/growth companies but should be "
+            f"considered when assessing FCF yield."
+        )
+    elif sbc_pct is not None and sbc_pct <= 10:
+        sentences.append(
+            f"Stock-based compensation is minimal at <strong>{sbc_pct:.0f}% of FCF</strong>, "
+            f"meaning reported free cash flow closely reflects true shareholder returns."
+        )
 
     # ── Sentence 9: 52w position ─────────────────────────────────────────────
     if pos_v is not None and low_v is not None and high_v is not None:

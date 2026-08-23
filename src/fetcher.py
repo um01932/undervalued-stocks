@@ -17,7 +17,8 @@ Cache schema (data/cache.duckdb):
              total_revenue, gross_profit, ebit, net_income)
 
   cashflow(ticker, period_date PK, fetched_at,
-           operating_cashflow, capital_expenditure, free_cash_flow)
+           operating_cashflow, capital_expenditure, free_cash_flow,
+           stock_based_compensation)
 
   balance_sheet(ticker, period_date PK, fetched_at,
                 total_assets, total_liabilities, total_debt,
@@ -109,6 +110,7 @@ INFO_FIELD_MAP: dict[str, str] = {
 _FCF_ROW_NAMES = ("Free Cash Flow", "freeCashflow", "FreeCashFlow")
 _OPCF_ROW_NAMES = ("Operating Cash Flow", "operatingCashflow", "Total Cash From Operating Activities")
 _CAPEX_ROW_NAMES = ("Capital Expenditure", "capitalExpenditures", "Capital Expenditures")
+_SBC_ROW_NAMES = ("Stock Based Compensation", "stockBasedCompensation")
 
 _FINANCIALS_ROW_MAP = {
     "Total Revenue": "total_revenue",
@@ -133,7 +135,7 @@ class TickerData(BaseModel):
 
     ticker: str
     info: dict[str, Any] = Field(default_factory=dict)
-    # Each element is one annual period: {"period_date": "2023-12-31", "free_cash_flow": 12345, ...}
+    # Each element is one annual period: {"period_date": "2023-12-31", "free_cash_flow": 12345, "stock_based_compensation": 123, ...}
     cashflow: list[dict[str, Any]] = Field(default_factory=list)
     financials: list[dict[str, Any]] = Field(default_factory=list)
     balance_sheet: list[dict[str, Any]] = Field(default_factory=list)
@@ -191,12 +193,13 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 _CREATE_CASHFLOW = """
 CREATE TABLE IF NOT EXISTS cashflow (
-    ticker              TEXT NOT NULL,
-    period_date         TEXT NOT NULL,
-    fetched_at          TIMESTAMP NOT NULL,
-    operating_cashflow  DOUBLE,
-    capital_expenditure DOUBLE,
-    free_cash_flow      DOUBLE,
+    ticker                   TEXT NOT NULL,
+    period_date              TEXT NOT NULL,
+    fetched_at               TIMESTAMP NOT NULL,
+    operating_cashflow       DOUBLE,
+    capital_expenditure      DOUBLE,
+    free_cash_flow           DOUBLE,
+    stock_based_compensation DOUBLE,
     PRIMARY KEY (ticker, period_date)
 );
 """
@@ -266,6 +269,12 @@ class CacheStore:
                     f"ALTER TABLE ticker_info ADD COLUMN {col} DOUBLE"
                 )
                 logger.debug("Migrated ticker_info: added column %s", col)
+        try:
+            self._conn_obj.execute(
+                "ALTER TABLE cashflow ADD COLUMN stock_based_compensation DOUBLE"
+            )
+        except Exception:
+            pass
 
     def _conn(self) -> duckdb.DuckDBPyConnection:
         """Return the shared DuckDB connection."""
@@ -423,6 +432,7 @@ class CacheStore:
         "cashflow": [
             "ticker", "period_date", "fetched_at",
             "operating_cashflow", "capital_expenditure", "free_cash_flow",
+            "stock_based_compensation",
         ],
         "financials": [
             "ticker", "period_date", "fetched_at",
@@ -569,6 +579,11 @@ def _df_to_cashflow_rows(df: pd.DataFrame) -> list[dict[str, Any]]:
         for name in _CAPEX_ROW_NAMES:
             if name in df_dates.columns:
                 record["capital_expenditure"] = _safe_float(row.get(name))
+                break
+
+        for name in _SBC_ROW_NAMES:
+            if name in df_dates.columns:
+                record["stock_based_compensation"] = _safe_float(row.get(name))
                 break
 
         # Free cash flow — try explicit row first, then derive

@@ -73,6 +73,7 @@ class ScreenerProfile(BaseModel):
     # Sub-Task 6 — Dividend filters
     min_dividend_yield: Optional[float] = None     # % threshold e.g. 2.5 means 2.5%
     max_payout_fcf:     Optional[float] = None     # % threshold e.g. 70 means 70%
+    max_sbc_to_fcf_pct: Optional[float] = None
 
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_piotroski=5,
         min_roic=10.0,
         min_roe=15.0,
+        max_sbc_to_fcf_pct=30.0,
         exclude_beneish_risk=True,
     ),
     "high_fcf_yield": ScreenerProfile(
@@ -251,7 +253,7 @@ _OUTPUT_COLUMNS = [
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
     "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
     "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%",
-    "Dividend Yield%", "Payout (FCF)%",
+    "Dividend Yield%", "Payout (FCF)%", "SBC/FCF%",
     "Score", "Beneish M", "Manip.Risk",
 ]
 
@@ -343,6 +345,10 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         if result.payout_ratio_fcf * 100 > profile.max_payout_fcf:
             return False
 
+    if profile.max_sbc_to_fcf_pct is not None and result.sbc_to_fcf_pct is not None:
+        if result.sbc_to_fcf_pct > profile.max_sbc_to_fcf_pct:
+            return False
+
     return True
 
 
@@ -403,6 +409,7 @@ def apply_profile(
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
+            "SBC/FCF%":         r.sbc_to_fcf_pct,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
@@ -551,6 +558,7 @@ def rank_all(
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
+            "SBC/FCF%":         r.sbc_to_fcf_pct,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
