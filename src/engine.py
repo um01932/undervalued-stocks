@@ -117,6 +117,10 @@ class ValuationResult(BaseModel):
     gross_margin: Optional[float] = None     # Gross margin (decimal)
     operating_margin: Optional[float] = None # Operating margin (decimal)
 
+    # Dividend metrics (Sub-Task 6)
+    dividend_yield: Optional[float] = None   # e.g. 0.035 = 3.5%
+    payout_ratio_fcf: Optional[float] = None # dividends paid / avg_fcf_3y
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -917,6 +921,25 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
     except Exception:
         roe_v = roa_v = beta_v = gross_margin_v = operating_margin_v = None
 
+    # Dividend yield — directly from info
+    dividend_yield_v = _safe_val(info.get("dividendYield"))
+
+    # payout_ratio_fcf: (dividend_rate × shares) / mean(positive_fcf_3y)
+    div_rate_v = _safe_val(info.get("dividendRate"))
+    shares_v   = _safe_val(info.get("sharesOutstanding"))
+    fcf_vals = [
+        _safe_val(cf.get("free_cash_flow"))
+        for cf in data.cashflow
+        if _safe_val(cf.get("free_cash_flow")) is not None
+           and _safe_val(cf.get("free_cash_flow")) > 0
+    ][:3]
+    payout_ratio_fcf_v: Optional[float] = None
+    if div_rate_v and shares_v and fcf_vals:
+        total_divs = div_rate_v * shares_v
+        avg_fcf    = sum(fcf_vals) / len(fcf_vals)
+        if avg_fcf > 0:
+            payout_ratio_fcf_v = round(total_divs / avg_fcf, 4)
+
     result = ValuationResult(
         ticker=data.ticker,
         company_name=info.get("short_name"),
@@ -953,6 +976,8 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         beta=beta_v,
         gross_margin=gross_margin_v,
         operating_margin=operating_margin_v,
+        dividend_yield=dividend_yield_v,
+        payout_ratio_fcf=payout_ratio_fcf_v,
     )
     from src.screener import compute_composite_score  # late import to avoid circular dep
     result.composite_score = compute_composite_score(result)

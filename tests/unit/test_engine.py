@@ -1348,3 +1348,50 @@ class TestComputeBeneishMScore:
         result = evaluate(data, DEFAULT_PARAMS)
         assert result.beneish_m is not None
         assert result.beneish_flag is False
+
+
+# ── TestPayoutRatioFcf ────────────────────────────────────────────────────────
+
+class TestPayoutRatioFcf:
+    def test_payout_ratio_computed_correctly(self):
+        """payout_ratio_fcf = (dividendRate × sharesOutstanding) / avg_fcf_3y."""
+        info = _make_info()
+        info["dividendRate"] = 2.0          # $2 per share
+        info["sharesOutstanding"] = 10e9    # 10 billion shares → total divs = 20e9
+        # FCF rows: 40e9, 60e9, 80e9 → avg = 60e9 → payout = 20e9/60e9 ≈ 0.3333
+        data = _make_ticker_data(info=info, cf_values=[40e9, 60e9, 80e9])
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.payout_ratio_fcf == pytest.approx(20e9 / 60e9, rel=1e-3)
+
+    def test_payout_ratio_none_when_no_dividend(self):
+        """dividend_rate=None → payout_ratio_fcf is None."""
+        info = _make_info()
+        info["dividendRate"] = None
+        info["sharesOutstanding"] = 10e9
+        data = _make_ticker_data(info=info, cf_values=[50e9, 60e9, 70e9])
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.payout_ratio_fcf is None
+
+    def test_payout_ratio_none_when_no_positive_fcf(self):
+        """No positive FCF values → payout_ratio_fcf is None."""
+        info = _make_info()
+        info["dividendRate"] = 2.0
+        info["sharesOutstanding"] = 10e9
+        # All negative FCF — should be excluded
+        data = _make_ticker_data(info=info, cf_values=[-10e9, -5e9, -20e9])
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.payout_ratio_fcf is None
+
+    def test_dividend_yield_populated(self):
+        """dividend_yield is read directly from info['dividendYield']."""
+        info = _make_info()
+        info["dividendYield"] = 0.035   # 3.5%
+        data = _make_ticker_data(info=info)
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.dividend_yield == pytest.approx(0.035)
+
+    def test_dividend_yield_none_when_missing(self):
+        """Missing dividendYield in info → dividend_yield is None."""
+        data = _make_ticker_data()   # no dividendYield key
+        result = evaluate(data, DEFAULT_PARAMS)
+        assert result.dividend_yield is None

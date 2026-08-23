@@ -571,3 +571,121 @@ class TestBuffettQualityRoeFilter:
         df = apply_profile(results, profile)
         assert len(df) == 1
         assert df.iloc[0]["Gross Margin%"] == pytest.approx(45.0)
+
+
+# ── Dividend filter helpers ────────────────────────────────────────────────────
+
+def _make_result_st6(
+    dividend_yield: float | None = None,
+    payout_ratio_fcf: float | None = None,
+    piotroski_score: int | None = 6,
+    **kwargs,
+) -> ValuationResult:
+    """Fixture with dividend_yield and payout_ratio_fcf fields set."""
+    base = {
+        "ticker": "DIV",
+        "company_name": "Dividend Corp",
+        "sector": "Utilities",
+        "industry": "Electric",
+        "current_price": 50.0,
+        "market_cap": 5e9,
+        "pe_ratio": 18.0,
+        "pb_ratio": 2.0,
+        "ev_ebitda": 10.0,
+        "p_fcf": 14.0,
+        "net_debt_ebitda": 1.5,
+        "dcf_ggm_intrinsic": 60.0,
+        "dcf_exit_intrinsic": 58.0,
+        "dcf_intrinsic_value": 59.0,
+        "margin_of_safety_pct": 15.0,
+        "status": "OK",
+        "dividend_yield": dividend_yield,
+        "payout_ratio_fcf": payout_ratio_fcf,
+        "piotroski_score": piotroski_score,
+    }
+    base.update(kwargs)
+    return ValuationResult(**base)
+
+
+class TestDividendGrowthProfile:
+    def test_dividend_growth_profile_exists(self):
+        """dividend_growth profile should be present in BUILTIN_PROFILES."""
+        assert "dividend_growth" in BUILTIN_PROFILES
+
+    def test_dividend_growth_profile_settings(self):
+        """dividend_growth profile should have expected thresholds."""
+        p = BUILTIN_PROFILES["dividend_growth"]
+        assert p.min_dividend_yield == pytest.approx(2.5)
+        assert p.max_payout_fcf == pytest.approx(70.0)
+        assert p.max_pe == pytest.approx(25.0)
+        assert p.exclude_beneish_risk is True
+
+    def test_dividend_growth_passes_with_yield_and_payout(self):
+        """yield=0.03 (3%), payout=0.50 (50%), piotroski=6 → passes."""
+        profile = BUILTIN_PROFILES["dividend_growth"]
+        results = [_make_result_st6(dividend_yield=0.03, payout_ratio_fcf=0.50)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_dividend_growth_fails_low_yield(self):
+        """yield=0.01 (1%) < 2.5% threshold → fails."""
+        profile = BUILTIN_PROFILES["dividend_growth"]
+        results = [_make_result_st6(dividend_yield=0.01, payout_ratio_fcf=0.50)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_dividend_growth_fails_high_payout(self):
+        """payout=0.85 (85%) > 70% threshold → fails."""
+        profile = BUILTIN_PROFILES["dividend_growth"]
+        results = [_make_result_st6(dividend_yield=0.03, payout_ratio_fcf=0.85)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+
+class TestDividendYieldFilter:
+    def test_min_dividend_yield_passes(self):
+        """yield=0.04 (4%) passes min_dividend_yield=2.5."""
+        profile = ScreenerProfile(name="test", min_dividend_yield=2.5, min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(dividend_yield=0.04)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_min_dividend_yield_fails(self):
+        """yield=0.015 (1.5%) fails min_dividend_yield=2.5."""
+        profile = ScreenerProfile(name="test", min_dividend_yield=2.5, min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(dividend_yield=0.015)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_min_dividend_yield_none_passes(self):
+        """dividend_yield=None (unknown) should not disqualify."""
+        profile = ScreenerProfile(name="test", min_dividend_yield=2.5, min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(dividend_yield=None)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_max_payout_fcf_passes(self):
+        """payout=0.60 (60%) passes max_payout_fcf=70."""
+        profile = ScreenerProfile(name="test", max_payout_fcf=70.0, min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(payout_ratio_fcf=0.60)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+
+    def test_max_payout_fcf_fails(self):
+        """payout=0.80 (80%) fails max_payout_fcf=70."""
+        profile = ScreenerProfile(name="test", max_payout_fcf=70.0, min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(payout_ratio_fcf=0.80)]
+        df = apply_profile(results, profile)
+        assert len(df) == 0
+
+    def test_dividend_yield_column_populated(self):
+        """Dividend Yield% column should reflect dividend_yield * 100."""
+        from src.screener import _OUTPUT_COLUMNS
+        assert "Dividend Yield%" in _OUTPUT_COLUMNS
+        assert "Payout (FCF)%" in _OUTPUT_COLUMNS
+        profile = ScreenerProfile(name="test", min_margin_of_safety_pct=10.0)
+        results = [_make_result_st6(dividend_yield=0.035, payout_ratio_fcf=0.55)]
+        df = apply_profile(results, profile)
+        assert len(df) == 1
+        assert df.iloc[0]["Dividend Yield%"] == pytest.approx(3.5)
+        assert df.iloc[0]["Payout (FCF)%"] == pytest.approx(55.0)

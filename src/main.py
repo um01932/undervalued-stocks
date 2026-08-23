@@ -69,7 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value"],
+        choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"],
         default="deep_value",
         help="Screener preset to apply.",
     )
@@ -139,7 +139,7 @@ def interactive_wizard() -> argparse.Namespace:
     if universe == "custom":
         csv_path = _prompt("Path to ticker CSV", "data/custom_tickers.csv")
 
-    profile     = _prompt("Screener profile (deep_value/buffett_quality/high_fcf_yield/quality_value)", "deep_value")
+    profile     = _prompt("Screener profile (deep_value/buffett_quality/high_fcf_yield/quality_value/dividend_growth)", "deep_value")
     workers     = int(_prompt("Parallel fetch threads", "8"))
     rps         = float(_prompt("Max requests per second", "2.0"))
     export_fmt  = _prompt("Export format (csv/excel/both/none)", "csv")

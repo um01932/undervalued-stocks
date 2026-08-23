@@ -217,6 +217,7 @@ _PROFILE_PLAIN = {
     "buffett_quality": "the Buffett Quality screen — combining strong returns on capital with a reasonable price",
     "high_fcf_yield":  "the High Free Cash Flow Yield screen — exceptional real cash generation per dollar invested",
     "quality_value":   "the Quality Value screen — financially healthy balance sheet with a clear discount to intrinsic value",
+    "dividend_growth": "the Dividend Growth screen — targeting companies with sustainable dividends backed by strong free cash flow",
 }
 
 
@@ -822,6 +823,21 @@ def _why_buy(row: dict, profile_key: str | None = None,
                 f"on the DCF model and future cash flow growth."
             )
 
+    # ── Sentence 8e: Dividend yield + FCF payout ─────────────────────────────
+    div_y   = _fv(row.get("Dividend Yield%", ""))
+    payout_v = _fv(row.get("Payout (FCF)%", ""))
+    if div_y is not None and div_y > 0:
+        if payout_v is not None and payout_v < 70:
+            sentences.append(
+                f"{ticker} pays a <strong>{div_y:.1f}% dividend yield</strong>, "
+                f"covered by only <strong>{payout_v:.0f}% of free cash flow</strong> — "
+                f"leaving ample room for dividend growth without straining the balance sheet."
+            )
+        else:
+            sentences.append(
+                f"{ticker} offers a <strong>{div_y:.1f}% dividend yield</strong>."
+            )
+
     # ── Sentence 9: 52w position ─────────────────────────────────────────────
     if pos_v is not None and low_v is not None and high_v is not None:
         if pos_v < 20:
@@ -1175,6 +1191,12 @@ _PROFILE_META = {
         "icon": "QV",
         "desc": "Balanced blend: EV/EBITDA ≤ 10, P/E ≤ 18, ROIC ≥ 8%, Piotroski ≥ 6, Altman Z ≥ 1.0, MoS ≥ 20%. Avoids distressed companies while still requiring a clear discount.",
         "colour": "#d97706",
+    },
+    "dividend_growth": {
+        "label": "Dividend Growth",
+        "icon": "DIV",
+        "desc": "Income-oriented screen. Min dividend yield 2.5%, FCF payout ≤ 70%, Piotroski ≥ 5, Net Debt/EBITDA ≤ 2.0. Targets financially healthy companies that return capital to shareholders sustainably.",
+        "colour": "#0891b2",
     },
 }
 
@@ -1721,6 +1743,7 @@ _PROFILE_LABEL_SHORT = {
     "buffett_quality": ("BQ",  "#7c3aed", "Buffett Quality"),
     "high_fcf_yield":  ("FCF", "#059669", "High FCF Yield"),
     "quality_value":   ("QV",  "#d97706", "Quality Value"),
+    "dividend_growth": ("DIV", "#0891b2", "Dividend Growth"),
 }
 
 def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
@@ -2119,7 +2142,7 @@ def build_full_report(out_path: Path) -> None:
     profile_sections: list[str] = []
     n_pass_per_profile: dict[str, int] = {}
 
-    for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
+    for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"):
         p = _most_recent(f"*_{key}.csv", exclude_backtest=True)
         if p is None:
             rows, ts = [], "—"

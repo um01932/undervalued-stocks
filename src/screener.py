@@ -70,6 +70,10 @@ class ScreenerProfile(BaseModel):
     # Sub-Task 4 — Beneish M-Score
     exclude_beneish_risk: bool = False             # exclude M > -1.78 (potential earnings manipulator)
 
+    # Sub-Task 6 — Dividend filters
+    min_dividend_yield: Optional[float] = None     # % threshold e.g. 2.5 means 2.5%
+    max_payout_fcf:     Optional[float] = None     # % threshold e.g. 70 means 70%
+
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
 
@@ -122,6 +126,16 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         exclude_altman_distress=True,
         exclude_beneish_risk=True,
         sort_by="Score",
+    ),
+    "dividend_growth": ScreenerProfile(
+        name="dividend_growth",
+        min_dividend_yield=2.5,    # at least 2.5% yield
+        max_payout_fcf=70.0,       # sustainable: pays less than 70% of FCF as dividends
+        max_pe=25.0,
+        max_net_debt_ebitda=2.0,
+        min_margin_of_safety_pct=10.0,
+        min_piotroski=5,
+        exclude_beneish_risk=True,
     ),
 }
 
@@ -236,8 +250,9 @@ _OUTPUT_COLUMNS = [
     "52w Low", "52w High", "52w Position%",
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
     "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
-    "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%", "Score",
-    "Beneish M", "Manip.Risk",
+    "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%",
+    "Dividend Yield%", "Payout (FCF)%",
+    "Score", "Beneish M", "Manip.Risk",
 ]
 
 # Columns for the Dow 30 ranking report (no MoS filter, ranked by 52w position)
@@ -318,6 +333,16 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
     if profile.exclude_beneish_risk and result.beneish_flag:
         return False
 
+    # Dividend yield: stored as decimal (0.035), threshold in %
+    if profile.min_dividend_yield is not None and result.dividend_yield is not None:
+        if result.dividend_yield * 100 < profile.min_dividend_yield:
+            return False
+
+    # Payout ratio: stored as decimal, threshold in %
+    if profile.max_payout_fcf is not None and result.payout_ratio_fcf is not None:
+        if result.payout_ratio_fcf * 100 > profile.max_payout_fcf:
+            return False
+
     return True
 
 
@@ -376,6 +401,8 @@ def apply_profile(
             "ROA%":             (r.roa * 100) if r.roa is not None else None,
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
+            "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
+            "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
@@ -522,6 +549,8 @@ def rank_all(
             "ROA%":             (r.roa * 100) if r.roa is not None else None,
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
+            "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
+            "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
