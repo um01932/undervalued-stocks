@@ -1213,6 +1213,12 @@ _PROFILE_META = {
         "desc": "Income-oriented screen. Min dividend yield 2.5%, FCF payout ≤ 70%, Piotroski ≥ 5, Net Debt/EBITDA ≤ 2.0. Targets financially healthy companies that return capital to shareholders sustainably.",
         "colour": "#0891b2",
     },
+    "magic_formula": {
+        "label": "Magic Formula",
+        "icon": "MF",
+        "desc": "Greenblatt Magic Formula: ranks all S&P 500 companies by Earnings Yield (E/P) + ROIC simultaneously. Lower combined rank = stronger signal. Excludes financials and utilities. Top 30 shown.",
+        "colour": "#be185d",
+    },
 }
 
 
@@ -1495,6 +1501,143 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
           <tbody>{top_html}</tbody>
         </table>
         {rest_html}
+      </div>
+    </details>"""
+
+
+# ── Magic Formula section ─────────────────────────────────────────────────────
+
+def _build_magic_formula_section(rows: list[dict], run_ts: str) -> str:
+    """Build the Greenblatt Magic Formula section (simple ranked table, top 30)."""
+    meta = _PROFILE_META["magic_formula"]
+    colour = meta["colour"]
+    n = len(rows)
+
+    if not rows:
+        return f"""
+    <span class="section-anchor" id="magic_formula"></span>
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:{colour}18;color:{colour}">{meta['icon']}</span>
+          <span class="sec-title">{meta['label']} Screen</span>
+          <span class="sec-meta">No data available yet &nbsp;·&nbsp; run main.py to generate</span>
+        </div>
+      </summary>
+      <div class="sec-body">
+        <div style="font-size:13px;color:#57606a">{meta['desc']}</div>
+        <div class="ib blue" style="margin-top:14px">
+          No Magic Formula CSV found in <code>data/reports/</code>.
+          Run <code>python src/main.py</code> to generate it.
+        </div>
+      </div>
+    </details>"""
+
+    tbl_rows = ""
+    for row in rows:
+        rank_v  = row.get("Magic Rank", "")
+        ey_r    = row.get("EY Rank", "")
+        roic_r  = row.get("ROIC Rank", "")
+        ticker  = row.get("Ticker", "")
+        company = row.get("Company", "")
+        sector  = row.get("Sector", "")
+        price_v = _fv(row.get("Price", ""))
+        mos_v   = _fv(row.get("MoS%", ""))
+        ey_v    = _fv(row.get("Earnings Yield%", ""))
+        roic_v  = _fv(row.get("ROIC%", ""))
+        pe_v    = _fv(row.get("P/E", ""))
+        ev_v    = _fv(row.get("EV/EBITDA", ""))
+        pio_v   = row.get("Piotroski", "")
+        graham_v = _fv(row.get("Graham", ""))
+
+        # rank colour: top5 = pink accent, else muted
+        try:
+            rank_int = int(rank_v)
+            rc = colour if rank_int <= 5 else "#57606a"
+        except (ValueError, TypeError):
+            rc = "#57606a"
+
+        mos_str = (
+            f'<span style="color:{_mos_colour(mos_v)};font-weight:700">{mos_v:.1f}%</span>'
+            if mos_v is not None else "—"
+        )
+        ey_str  = f'<strong style="color:{colour}">{ey_v:.2f}%</strong>' if ey_v is not None else "—"
+        roic_str = (
+            f'<span style="color:{"#16a34a" if roic_v >= 10 else ("#eab308" if roic_v >= 5 else "#e11d48")};font-weight:700">{roic_v:.1f}%</span>'
+            if roic_v is not None else "—"
+        )
+
+        tbl_rows += f"""<tr>
+          <td style="font-weight:800;color:{rc};font-size:14px;text-align:center">{rank_v}</td>
+          <td style="text-align:center;font-size:12px;color:#8d96a0">{ey_r}</td>
+          <td style="text-align:center;font-size:12px;color:#8d96a0">{roic_r}</td>
+          <td>
+            <div style="font-weight:800;font-size:13px">{ticker}</div>
+            <div style="font-size:11px;color:#57606a">{company}</div>
+          </td>
+          <td style="font-size:11px;color:#57606a">{sector or '—'}</td>
+          <td class="r">{_fmt(str(price_v) if price_v is not None else '', 2, prefix='$')}</td>
+          <td class="r">{mos_str}</td>
+          <td class="r">{ey_str}</td>
+          <td class="r">{roic_str}</td>
+          <td class="r">{_fmt(str(pe_v) if pe_v is not None else '', 1, suffix='x')}</td>
+          <td class="r">{_fmt(str(ev_v) if ev_v is not None else '', 1, suffix='x')}</td>
+          <td style="text-align:center">{_quality_badge(str(pio_v), 'piotroski')}</td>
+          <td class="r">{_fmt(str(graham_v) if graham_v is not None else '', 2, prefix='$')}</td>
+        </tr>"""
+
+    return f"""
+    <span class="section-anchor" id="magic_formula"></span>
+    <details class="sec-wrap">
+      <summary>
+        <div class="sec-hdr">
+          <span class="sec-arrow">&#9654;</span>
+          <span class="sec-badge" style="background:{colour}18;color:{colour}">{meta['icon']}</span>
+          <span class="sec-title">{meta['label']} Screen</span>
+          <span class="sec-meta">Top {n} companies &nbsp;·&nbsp; EY + ROIC dual rank &nbsp;·&nbsp; {run_ts}</span>
+        </div>
+      </summary>
+      <div class="sec-body">
+        <div style="font-size:13px;color:#57606a;margin-bottom:16px">{meta['desc']}</div>
+        <div class="ib blue" style="margin-bottom:16px">
+          <strong>How to read:</strong> EY Rank = Earnings Yield rank (1 = highest yield = cheapest).
+          ROIC Rank = Return on Invested Capital rank (1 = highest quality).
+          <strong>Magic Rank</strong> = EY Rank + ROIC Rank — the company with the <em>lowest combined rank</em>
+          is the top Magic Formula pick. Financials, Utilities, and Real Estate are excluded per Greenblatt.
+        </div>
+        <div class="stats-bar">
+          <div class="stat-pill">
+            <div class="sp-value" style="color:{colour}">{n}</div>
+            <div class="sp-label">Top Companies</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:{colour}">EY+ROIC</div>
+            <div class="sp-label">Dual Rank Method</div>
+          </div>
+          <div class="stat-pill">
+            <div class="sp-value" style="color:{colour}">{run_ts}</div>
+            <div class="sp-label">Data Run</div>
+          </div>
+        </div>
+        <table class="stbl" style="table-layout:fixed">
+          <thead><tr>
+            <th style="width:5%;text-align:center">Magic #</th>
+            <th style="width:5%;text-align:center">EY Rnk</th>
+            <th style="width:5%;text-align:center">ROIC Rnk</th>
+            <th style="width:14%">Ticker / Company</th>
+            <th style="width:11%">Sector</th>
+            <th class="r" style="width:7%">Price</th>
+            <th class="r" style="width:7%">MoS%</th>
+            <th class="r" style="width:8%">EY%</th>
+            <th class="r" style="width:7%">ROIC%</th>
+            <th class="r" style="width:6%">P/E</th>
+            <th class="r" style="width:8%">EV/EBITDA</th>
+            <th style="width:8%;text-align:center">Piotroski</th>
+            <th class="r" style="width:9%">Graham</th>
+          </tr></thead>
+          <tbody>{tbl_rows}</tbody>
+        </table>
       </div>
     </details>"""
 
@@ -2207,6 +2350,16 @@ def build_full_report(out_path: Path) -> None:
         try: dow_ts = datetime.strptime(dow_ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
         except Exception: pass
 
+    # Magic Formula
+    mf_path = _most_recent("*_magic_formula.csv")
+    mf_rows: list[dict] = []
+    mf_ts = "—"
+    if mf_path:
+        mf_rows = _load_csv(mf_path)
+        mf_ts = mf_path.stem[:15]
+        try: mf_ts = datetime.strptime(mf_ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
+        except Exception: pass
+
     # Backtest
     bt_path = _most_recent("*_backtest_*.csv")
     bt_rows: list[dict] = []
@@ -2315,6 +2468,9 @@ def build_full_report(out_path: Path) -> None:
     # ── Top Convictions ───────────────────────────────────────────────────────
     convictions_section = _build_convictions_section(all_profile_rows)
 
+    # ── Magic Formula section ─────────────────────────────────────────────────
+    magic_formula_section = _build_magic_formula_section(mf_rows, mf_ts)
+
     # ── TOC ───────────────────────────────────────────────────────────────────
     toc_links  = '<a href="#overall_top">&#9650; Top Overall</a>'
     toc_links += '<a href="#convictions">&#9733; Top Convictions</a>'
@@ -2322,6 +2478,7 @@ def build_full_report(out_path: Path) -> None:
         f'<a href="#{k}">{_PROFILE_META[k]["label"]}</a>'
         for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value")
     )
+    toc_links += f'<a href="#magic_formula">{_PROFILE_META["magic_formula"]["label"]}</a>'
     if dow_rows:   toc_links += '<a href="#dow30">Dow 30 Ranking</a>'
     if bt_rows:    toc_links += '<a href="#backtest">Backtest vs S&amp;P 500</a>'
     toc_links += '<a href="#methodology">Methodology</a>'
@@ -2833,6 +2990,7 @@ def build_full_report(out_path: Path) -> None:
   {overall_top_section}
   {convictions_section}
   {''.join(profile_sections)}
+  {magic_formula_section}
   {dow_section}
   {bt_section}
   {methodology}

@@ -32,7 +32,7 @@ from rich import box
 from src.backtester import BacktestResult, run_backtest, LIMITATIONS
 from src.engine import DCFParams, ValuationResult, evaluate
 from src.fetcher import CacheStore, TickerData, fetch_universe, fetch_risk_free_rate
-from src.screener import ScreenerProfile, apply_profile, rank_all, apply_dow30_ranking, load_profiles
+from src.screener import ScreenerProfile, apply_profile, rank_all, apply_dow30_ranking, load_profiles, apply_magic_formula
 from src.universe import UniverseSource, get_universe
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -593,6 +593,17 @@ def run(args: argparse.Namespace) -> None:
         console.print(f"[green]Saved:[/green] {path}")
     if failed_path:
         console.print(f"[dim]Failed tickers logged to:[/dim] {failed_path}")
+
+    # ── Magic Formula ─────────────────────────────────────────────────────────
+    if not is_dow30_mode and args.export in ("csv", "both"):
+        mf_df = apply_magic_formula(valuation_results)
+        if not mf_df.empty:
+            reports_dir = _REPORTS_DIR
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            mf_path = reports_dir / f"{ts}_magic_formula.csv"
+            mf_df.to_csv(mf_path, index=False)
+            console.print(f"[green]Magic Formula:[/green] {len(mf_df)} companies → {mf_path.name}")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

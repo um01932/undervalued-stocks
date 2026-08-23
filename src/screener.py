@@ -34,6 +34,8 @@ __all__ = [
     "apply_dow30_ranking",
     "compute_composite_score",
     "DOW30_OUTPUT_COLUMNS",
+    "MAGIC_FORMULA_COLUMNS",
+    "apply_magic_formula",
 ]
 
 logger = logging.getLogger(__name__)
@@ -625,3 +627,75 @@ def apply_dow30_ranking(results: list[ValuationResult]) -> pd.DataFrame:
 
     df.insert(0, "Rank", range(1, len(df) + 1))
     return df[DOW30_OUTPUT_COLUMNS]
+
+# ── Magic Formula (Greenblatt) ────────────────────────────────────────────────
+
+MAGIC_FORMULA_COLUMNS = [
+    "Magic Rank", "EY Rank", "ROIC Rank",
+    "Ticker", "Company", "Sector",
+    "Price", "MoS%", "Earnings Yield%", "ROIC%",
+    "P/E", "EV/EBITDA", "Piotroski", "Graham",
+]
+
+
+def apply_magic_formula(results: list[ValuationResult]) -> pd.DataFrame:
+    """
+    Greenblatt Magic Formula: rank by Earnings Yield (E/P proxy) + ROIC.
+    Lower combined rank = better. Returns top 30.
+    Excludes: INSUFFICIENT_DATA, financial sector, utilities, Real Estate.
+    """
+    EXCLUDE_SECTORS = {"Financials", "Financial Services", "Utilities", "Real Estate"}
+
+    eligible = []
+    for r in results:
+        if r.status == "INSUFFICIENT_DATA":
+            continue
+        if r.sector in EXCLUDE_SECTORS:
+            continue
+        # Earnings Yield proxy: E/P = 1 / P/E
+        ey = None
+        if r.pe_ratio and r.pe_ratio > 0:
+            ey = 1.0 / r.pe_ratio
+        if ey is None:
+            continue
+        if r.roic is None:
+            continue
+        eligible.append((r, ey))
+
+    if len(eligible) < 5:
+        return pd.DataFrame(columns=MAGIC_FORMULA_COLUMNS)
+
+    # Rank by EY descending (higher yield = rank #1 = better)
+    eligible.sort(key=lambda x: x[1], reverse=True)
+    ey_ranks = {r.ticker: i + 1 for i, (r, _) in enumerate(eligible)}
+
+    # Rank by ROIC descending
+    eligible.sort(key=lambda x: x[0].roic, reverse=True)
+    roic_ranks = {r.ticker: i + 1 for i, (r, _) in enumerate(eligible)}
+
+    rows = []
+    for r, ey in eligible:
+        magic_score = ey_ranks[r.ticker] + roic_ranks[r.ticker]
+        rows.append({
+            "Magic Rank":      0,  # filled after sort
+            "EY Rank":         ey_ranks[r.ticker],
+            "ROIC Rank":       roic_ranks[r.ticker],
+            "Magic Score":     magic_score,
+            "Ticker":          r.ticker,
+            "Company":         r.company_name or "",
+            "Sector":          r.sector or "",
+            "Price":           r.current_price,
+            "MoS%":            r.margin_of_safety_pct,
+            "Earnings Yield%": round(ey * 100, 2),
+            "ROIC%":           round(r.roic * 100, 2) if r.roic else None,
+            "P/E":             r.pe_ratio,
+            "EV/EBITDA":       r.ev_ebitda,
+            "Piotroski":       r.piotroski_score,
+            "Graham":          r.graham_number,
+        })
+
+    df = pd.DataFrame(rows)
+    df = df.sort_values("Magic Score", ascending=True).reset_index(drop=True)
+    df["Magic Rank"] = range(1, len(df) + 1)
+    top30 = df.head(30)[MAGIC_FORMULA_COLUMNS].copy()
+    return top30

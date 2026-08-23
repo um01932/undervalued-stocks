@@ -14,7 +14,9 @@ import pytest
 from src.engine import ValuationResult
 from src.screener import (
     BUILTIN_PROFILES,
+    MAGIC_FORMULA_COLUMNS,
     ScreenerProfile,
+    apply_magic_formula,
     apply_profile,
     load_profiles,
 )
@@ -689,3 +691,107 @@ class TestDividendYieldFilter:
         assert len(df) == 1
         assert df.iloc[0]["Dividend Yield%"] == pytest.approx(3.5)
         assert df.iloc[0]["Payout (FCF)%"] == pytest.approx(55.0)
+
+
+# ── Sub-Task 7: Magic Formula tests ──────────────────────────────────────────
+
+def _make_result_mf(
+    ticker: str,
+    pe_ratio: float | None = 15.0,
+    roic: float | None = 0.15,
+    sector: str = "Technology",
+    status: str = "OK",
+    **kwargs,
+) -> ValuationResult:
+    """Fixture for Magic Formula tests — eligible by default."""
+    base = {
+        "ticker": ticker,
+        "company_name": f"{ticker} Corp",
+        "sector": sector,
+        "industry": "Software",
+        "current_price": 100.0,
+        "market_cap": 10e9,
+        "pe_ratio": pe_ratio,
+        "pb_ratio": 2.0,
+        "ev_ebitda": 8.0,
+        "p_fcf": 12.0,
+        "net_debt_ebitda": 0.5,
+        "dcf_ggm_intrinsic": 130.0,
+        "dcf_exit_intrinsic": 120.0,
+        "dcf_intrinsic_value": 125.0,
+        "margin_of_safety_pct": 20.0,
+        "status": status,
+        "roic": roic,
+    }
+    base.update(kwargs)
+    return ValuationResult(**base)
+
+
+class TestMagicFormula:
+    def _make_50_eligible(self) -> list[ValuationResult]:
+        """Build 50 eligible (non-financial, non-utility) results with valid PE and ROIC."""
+        results = []
+        for i in range(50):
+            pe = 10.0 + i * 0.5          # PE: 10.0 to 34.5
+            roic = 0.05 + i * 0.005      # ROIC: 5% to 29.5%
+            results.append(_make_result_mf(
+                ticker=f"T{i:02d}",
+                pe_ratio=pe,
+                roic=roic,
+                sector="Technology",
+            ))
+        return results
+
+    def test_magic_formula_returns_top30(self):
+        """50 eligible results → DataFrame with exactly 30 rows."""
+        from src.screener import apply_magic_formula, MAGIC_FORMULA_COLUMNS
+        results = self._make_50_eligible()
+        df = apply_magic_formula(results)
+        assert len(df) == 30
+        assert list(df.columns) == MAGIC_FORMULA_COLUMNS
+
+    def test_magic_formula_excludes_financials(self):
+        """Financial Services companies must not appear in results."""
+        from src.screener import apply_magic_formula
+        results = self._make_50_eligible()
+        # Add a financial company with very high EY + ROIC (would rank #1 if not excluded)
+        results.append(_make_result_mf(
+            ticker="BANK",
+            pe_ratio=5.0,
+            roic=0.50,
+            sector="Financial Services",
+        ))
+        results.append(_make_result_mf(
+            ticker="FINS",
+            pe_ratio=4.0,
+            roic=0.60,
+            sector="Financials",
+        ))
+        df = apply_magic_formula(results)
+        assert "BANK" not in df["Ticker"].values
+        assert "FINS" not in df["Ticker"].values
+
+    def test_magic_formula_excludes_no_pe(self):
+        """Companies with pe=None or pe<=0 must be excluded."""
+        from src.screener import apply_magic_formula
+        results = self._make_50_eligible()
+        # Add companies with no PE — should be excluded
+        results.append(_make_result_mf(ticker="NOPE1", pe_ratio=None, roic=0.30))
+        results.append(_make_result_mf(ticker="NOPE2", pe_ratio=-5.0, roic=0.30))
+        df = apply_magic_formula(results)
+        assert "NOPE1" not in df["Ticker"].values
+        assert "NOPE2" not in df["Ticker"].values
+
+    def test_magic_formula_rank_order(self):
+        """Best ranked company must have the lowest combined EY+ROIC rank."""
+        from src.screener import apply_magic_formula
+        results = self._make_50_eligible()
+        df = apply_magic_formula(results)
+        assert df.iloc[0]["Magic Rank"] == 1
+        # Verify all Magic Ranks are ascending
+        ranks = df["Magic Rank"].tolist()
+        assert ranks == list(range(1, len(df) + 1))
+        # EY rank + ROIC rank of row 0 should be ≤ those of row 1
+        row0 = df.iloc[0]
+        row1 = df.iloc[1]
+        assert (row0["EY Rank"] + row0["ROIC Rank"]) <= (row1["EY Rank"] + row1["ROIC Rank"])
