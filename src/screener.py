@@ -33,6 +33,7 @@ __all__ = [
     "rank_all",
     "apply_dow30_ranking",
     "compute_composite_score",
+    "compute_sector_percentiles",
     "DOW30_OUTPUT_COLUMNS",
     "MAGIC_FORMULA_COLUMNS",
     "apply_magic_formula",
@@ -256,6 +257,7 @@ _OUTPUT_COLUMNS = [
     "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
     "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%",
     "Dividend Yield%", "Payout (FCF)%", "SBC/FCF%",
+    "Sector P/E %ile", "Sector P/FCF %ile",
     "Score", "Beneish M", "Manip.Risk",
 ]
 
@@ -412,6 +414,8 @@ def apply_profile(
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "SBC/FCF%":         r.sbc_to_fcf_pct,
+            "Sector P/E %ile":  r.sector_pe_percentile,
+            "Sector P/FCF %ile": r.sector_pfcf_percentile,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
@@ -561,6 +565,8 @@ def rank_all(
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "SBC/FCF%":         r.sbc_to_fcf_pct,
+            "Sector P/E %ile":  r.sector_pe_percentile,
+            "Sector P/FCF %ile": r.sector_pfcf_percentile,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
@@ -576,6 +582,45 @@ def rank_all(
     df = pd.DataFrame(rows)
     df = df.sort_values("ProfileFit", ascending=False, na_position="last").reset_index(drop=True)
     return df
+
+
+def compute_sector_percentiles(results: list[ValuationResult]) -> None:
+    """
+    Mutates each ValuationResult in-place with sector-relative percentile ranks.
+    Percentile = % of sector peers with LOWER value (lower multiple = cheaper = lower percentile).
+    """
+    from collections import defaultdict
+
+    # Group by sector
+    sectors: dict[str, list[ValuationResult]] = defaultdict(list)
+    for r in results:
+        if r.sector and r.status != "INSUFFICIENT_DATA":
+            sectors[r.sector].append(r)
+
+    for sector_name, sector_results in sectors.items():
+        # P/E percentiles
+        pe_vals = [(r, r.pe_ratio) for r in sector_results if r.pe_ratio and r.pe_ratio > 0]
+        if len(pe_vals) >= 2:
+            sorted_pe = sorted(pe_vals, key=lambda x: x[1])
+            n = len(sorted_pe)
+            for rank, (r, _) in enumerate(sorted_pe):
+                r.sector_pe_percentile = round(rank / (n - 1) * 100, 1) if n > 1 else 50.0
+
+        # P/FCF percentiles
+        pfcf_vals = [(r, r.p_fcf) for r in sector_results if r.p_fcf and r.p_fcf > 0]
+        if len(pfcf_vals) >= 2:
+            sorted_pfcf = sorted(pfcf_vals, key=lambda x: x[1])
+            n = len(sorted_pfcf)
+            for rank, (r, _) in enumerate(sorted_pfcf):
+                r.sector_pfcf_percentile = round(rank / (n - 1) * 100, 1) if n > 1 else 50.0
+
+        # EV/EBITDA percentiles
+        ev_vals = [(r, r.ev_ebitda) for r in sector_results if r.ev_ebitda and r.ev_ebitda > 0]
+        if len(ev_vals) >= 2:
+            sorted_ev = sorted(ev_vals, key=lambda x: x[1])
+            n = len(sorted_ev)
+            for rank, (r, _) in enumerate(sorted_ev):
+                r.sector_ev_percentile = round(rank / (n - 1) * 100, 1) if n > 1 else 50.0
 
 
 def apply_dow30_ranking(results: list[ValuationResult]) -> pd.DataFrame:

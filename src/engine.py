@@ -124,6 +124,11 @@ class ValuationResult(BaseModel):
     sbc_adjusted_fcf: Optional[float] = None # FCF - avg_sbc_3y (per share)
     shares_dilution_pct: Optional[float] = None  # YoY share count change % (positive = diluting)
 
+    # Sector-relative percentiles (Sub-Task 8)
+    sector_pe_percentile:   Optional[float] = None  # 0-100, lower = cheaper vs sector
+    sector_pfcf_percentile: Optional[float] = None
+    sector_ev_percentile:   Optional[float] = None
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

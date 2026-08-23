@@ -113,8 +113,63 @@ def _fetch_price_history(tickers: list[str]) -> dict[str, list[dict]]:
     con.close()
     return result
 
-# ── Module-level price data (populated at build time) ─────────────────────────
-_PRICE_DATA: dict[str, list[dict]] = {}
+# ── Module-level data (populated at build time) ───────────────────────────────
+_PRICE_DATA:         dict[str, list[dict]]  = {}
+_SCORE_HISTORY_DATA: dict[str, list[float]] = {}
+
+# ── Score history ─────────────────────────────────────────────────────────────
+
+def _load_score_history(tickers: list[str]) -> dict[str, list[float]]:
+    """Load composite_score history for given tickers from DuckDB score_history table.
+    Returns {ticker: [score1, score2, ...]} sorted by run_date ASC, last 8 entries."""
+    try:
+        import duckdb
+        con = duckdb.connect(str(DB_PATH))
+        result = {}
+        for tkr in tickers:
+            rows = con.execute(
+                """
+                SELECT run_date, AVG(composite_score) as avg_score
+                FROM score_history
+                WHERE ticker = ? AND composite_score IS NOT NULL
+                GROUP BY run_date
+                ORDER BY run_date ASC
+                """,
+                [tkr],
+            ).fetchall()
+            if len(rows) >= 2:
+                result[tkr] = [r[1] for r in rows[-8:]]  # last 8 data points
+        con.close()
+        return result
+    except Exception:
+        return {}
+
+
+def _sparkline_svg(scores: list[float]) -> str:
+    """Mini 80×20 SVG sparkline for score history. Green trend up, red trend down."""
+    if len(scores) < 2:
+        return ""
+    mn, mx = min(scores), max(scores)
+    span = mx - mn or 1.0
+    W, H = 80, 20
+    pts = []
+    for i, s in enumerate(scores):
+        x = round(i / (len(scores) - 1) * W, 1)
+        y = round(H - (s - mn) / span * H, 1)
+        pts.append(f"{x},{y}")
+    colour = "#16a34a" if scores[-1] >= scores[0] else "#ef4444"
+    trend  = "↑" if scores[-1] >= scores[0] else "↓"
+    polyline = " ".join(pts)
+    return (
+        f'<span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">'
+        f'<svg width="{W}" height="{H}" style="display:inline-block;vertical-align:middle">'
+        f'<polyline points="{polyline}" fill="none" stroke="{colour}" stroke-width="1.5" stroke-linejoin="round"/>'
+        f'<circle cx="{pts[-1].split(",")[0]}" cy="{pts[-1].split(",")[1]}" r="2.5" fill="{colour}"/>'
+        f'</svg>'
+        f'<span style="font-size:10px;font-weight:700;color:{colour}">{trend} {scores[-1]:.0f}</span>'
+        f'</span>'
+    )
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -612,7 +667,8 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
 def _why_buy(row: dict, profile_key: str | None = None,
              profiles: list[str] | None = None,
              overall_score: float | None = None,
-             ohlc: list[dict] | None = None) -> str:
+             ohlc: list[dict] | None = None,
+             score_history: list[float] | None = None) -> str:
     """
     Generate a 'Why buy X?' expandable panel.
     Layout (top to bottom, no scroll):
@@ -853,6 +909,16 @@ def _why_buy(row: dict, profile_key: str | None = None,
             f"meaning reported free cash flow closely reflects true shareholder returns."
         )
 
+    # ── Sector percentile annotation ─────────────────────────────────────────
+    sec_pe_pct = _fv(row.get("Sector P/E %ile", ""))
+    if sec_pe_pct is not None and sec_pe_pct <= 20:
+        sector_name = row.get("Sector", "its sector") or "its sector"
+        sentences.append(
+            f"Within <strong>{sector_name}</strong>, {ticker} ranks in the "
+            f"<strong>{sec_pe_pct:.0f}th percentile for P/E</strong> — "
+            f"meaning ~{100 - sec_pe_pct:.0f}% of sector peers are more expensive on an earnings basis."
+        )
+
     # ── Sentence 9: 52w position ─────────────────────────────────────────────
     if pos_v is not None and low_v is not None and high_v is not None:
         if pos_v < 20:
@@ -917,11 +983,20 @@ def _why_buy(row: dict, profile_key: str | None = None,
           {chart_html}
         </div>""" if chart_html else ""
 
+    # Resolve score_history: prefer explicit parameter, fall back to module-level cache
+    _sh = score_history if score_history is not None else _SCORE_HISTORY_DATA.get(ticker)
+    sparkline_html = _sparkline_svg(_sh) if _sh and len(_sh) >= 2 else ""
+    spark_section  = (
+        f'<div style="margin-bottom:10px;color:#57606a;font-size:12px">Score history: {sparkline_html}</div>'
+        if sparkline_html else ""
+    )
+
     panel_html = f"""
         <!-- Score cards -->
         <div style="margin-bottom:14px">{cards_html}</div>
         <!-- DCF Sensitivity -->
         {f'<div style="margin-bottom:14px">{sens_html}</div>' if sens_html else ""}
+        {spark_section}
         {bar_section}
         {chart_section}
         <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px">
@@ -2339,6 +2414,16 @@ def build_full_report(out_path: Path) -> None:
         print(f"  Fetched price history for {len(_PRICE_DATA)} tickers.")
     else:
         _PRICE_DATA = {}
+
+    # Load score history for sparklines (stored in module-level var for access by _why_buy)
+    global _SCORE_HISTORY_DATA
+    all_tickers = list({
+        r.get("Ticker", "").strip()
+        for rows in all_profile_rows.values()
+        for r in rows
+        if r.get("Ticker", "").strip()
+    })
+    _SCORE_HISTORY_DATA = _load_score_history(all_tickers)
 
     # Dow 30
     dow_path = _most_recent("*_dow30_ranking.csv")

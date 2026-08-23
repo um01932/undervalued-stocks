@@ -795,3 +795,90 @@ class TestMagicFormula:
         row0 = df.iloc[0]
         row1 = df.iloc[1]
         assert (row0["EY Rank"] + row0["ROIC Rank"]) <= (row1["EY Rank"] + row1["ROIC Rank"])
+
+
+# ── Sub-Task 8: Sector Percentiles ───────────────────────────────────────────
+
+from src.screener import compute_sector_percentiles
+
+
+def _make_sector_result(
+    ticker: str,
+    sector: str,
+    pe_ratio: float | None,
+    p_fcf: float | None = None,
+    ev_ebitda: float | None = None,
+    status: str = "OK",
+) -> ValuationResult:
+    return ValuationResult(
+        ticker=ticker,
+        company_name=f"{ticker} Corp",
+        sector=sector,
+        industry="General",
+        current_price=100.0,
+        market_cap=10e9,
+        pe_ratio=pe_ratio,
+        p_fcf=p_fcf,
+        ev_ebitda=ev_ebitda,
+        dcf_intrinsic_value=130.0,
+        margin_of_safety_pct=20.0,
+        status=status,
+    )
+
+
+class TestSectorPercentiles:
+    def test_compute_sector_percentiles_sets_values(self):
+        """Three companies in the same sector should all get percentiles set."""
+        results = [
+            _make_sector_result("A", "Technology", pe_ratio=10.0),
+            _make_sector_result("B", "Technology", pe_ratio=20.0),
+            _make_sector_result("C", "Technology", pe_ratio=30.0),
+        ]
+        compute_sector_percentiles(results)
+        for r in results:
+            assert r.sector_pe_percentile is not None
+
+    def test_compute_sector_percentiles_cheapest_lowest(self):
+        """The company with the lowest P/E should receive the 0th percentile."""
+        cheap = _make_sector_result("CHEAP", "Technology", pe_ratio=5.0)
+        mid   = _make_sector_result("MID",   "Technology", pe_ratio=15.0)
+        pricey = _make_sector_result("PRICEY","Technology", pe_ratio=30.0)
+        results = [cheap, mid, pricey]
+        compute_sector_percentiles(results)
+        assert cheap.sector_pe_percentile  == pytest.approx(0.0)
+        assert pricey.sector_pe_percentile == pytest.approx(100.0)
+        assert mid.sector_pe_percentile    == pytest.approx(50.0)
+
+    def test_compute_sector_percentiles_different_sectors(self):
+        """Companies in different sectors should not affect each other's percentiles."""
+        tech1  = _make_sector_result("T1", "Technology", pe_ratio=10.0)
+        tech2  = _make_sector_result("T2", "Technology", pe_ratio=20.0)
+        hlth1  = _make_sector_result("H1", "Healthcare",  pe_ratio=8.0)
+        hlth2  = _make_sector_result("H2", "Healthcare",  pe_ratio=16.0)
+        results = [tech1, tech2, hlth1, hlth2]
+        compute_sector_percentiles(results)
+        # Each sector is independent: cheapest in each sector = 0th percentile
+        assert tech1.sector_pe_percentile == pytest.approx(0.0)
+        assert tech2.sector_pe_percentile == pytest.approx(100.0)
+        assert hlth1.sector_pe_percentile == pytest.approx(0.0)
+        assert hlth2.sector_pe_percentile == pytest.approx(100.0)
+
+    def test_insufficient_data_excluded(self):
+        """INSUFFICIENT_DATA companies should not be included in sector groupings."""
+        good   = _make_sector_result("GOOD", "Technology", pe_ratio=10.0, status="OK")
+        bad    = _make_sector_result("BAD",  "Technology", pe_ratio=5.0,  status="INSUFFICIENT_DATA")
+        other  = _make_sector_result("OTH",  "Technology", pe_ratio=20.0, status="OK")
+        results = [good, bad, other]
+        compute_sector_percentiles(results)
+        # bad should remain None
+        assert bad.sector_pe_percentile is None
+        # good and other should have percentiles set
+        assert good.sector_pe_percentile  is not None
+        assert other.sector_pe_percentile is not None
+
+    def test_single_company_in_sector_no_percentile(self):
+        """A sector with only one company cannot compute percentiles — should remain None."""
+        only_one = _make_sector_result("SOLO", "Utilities", pe_ratio=12.0)
+        results = [only_one]
+        compute_sector_percentiles(results)
+        assert only_one.sector_pe_percentile is None

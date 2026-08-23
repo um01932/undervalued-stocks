@@ -638,3 +638,88 @@ class TestFetchHistoricalPricesNearestDate:
             prices = result.get(tkr, {})
             assert "2021-01-02" in prices, f"{tkr} should have resolved 2021-01-02"
             assert prices["2021-01-02"] == pytest.approx(expected_price)
+
+
+# ── Sub-Task 9: Score History ────────────────────────────────────────────────
+
+
+class TestScoreHistory:
+    def test_score_history_table_created(self, cache):
+        """score_history table should exist after CacheStore initialisation."""
+        tables = {
+            row[0]
+            for row in cache._conn().execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+        }
+        assert "score_history" in tables
+
+    def test_append_score_history_inserts_rows(self, cache):
+        """append_score_history should insert rows that can be read back."""
+        rows = [
+            {
+                "ticker": "AAPL",
+                "run_date": "20240101",
+                "profile": "deep_value",
+                "composite_score": 72.5,
+                "mos_pct": 35.0,
+                "profile_fit": 68.0,
+            },
+            {
+                "ticker": "MSFT",
+                "run_date": "20240101",
+                "profile": "deep_value",
+                "composite_score": 65.0,
+                "mos_pct": 28.0,
+                "profile_fit": 61.0,
+            },
+        ]
+        cache.append_score_history(rows)
+        result = cache._conn().execute(
+            "SELECT ticker, composite_score FROM score_history ORDER BY ticker"
+        ).fetchall()
+        assert len(result) == 2
+        assert result[0][0] == "AAPL"
+        assert result[0][1] == pytest.approx(72.5)
+        assert result[1][0] == "MSFT"
+        assert result[1][1] == pytest.approx(65.0)
+
+    def test_append_score_history_upsert(self, cache):
+        """Calling append_score_history twice with the same PK should result in 1 row (upsert)."""
+        row = {
+            "ticker": "AAPL",
+            "run_date": "20240101",
+            "profile": "deep_value",
+            "composite_score": 72.5,
+            "mos_pct": 35.0,
+            "profile_fit": 68.0,
+        }
+        cache.append_score_history([row])
+        # second call with updated score
+        row2 = dict(row, composite_score=80.0)
+        cache.append_score_history([row2])
+        count = cache._conn().execute(
+            "SELECT COUNT(*) FROM score_history WHERE ticker = 'AAPL'"
+        ).fetchone()[0]
+        score = cache._conn().execute(
+            "SELECT composite_score FROM score_history WHERE ticker = 'AAPL'"
+        ).fetchone()[0]
+        assert count == 1                         # only 1 row
+        assert score == pytest.approx(80.0)       # updated value
+
+    def test_append_score_history_nullable_fields(self, cache):
+        """Rows with None composite_score / mos_pct should still be stored."""
+        rows = [{
+            "ticker": "TEST",
+            "run_date": "20240101",
+            "profile": "buffett_quality",
+            "composite_score": None,
+            "mos_pct": None,
+            "profile_fit": None,
+        }]
+        cache.append_score_history(rows)
+        result = cache._conn().execute(
+            "SELECT composite_score FROM score_history WHERE ticker = 'TEST'"
+        ).fetchone()
+        assert result is not None
+        assert result[0] is None

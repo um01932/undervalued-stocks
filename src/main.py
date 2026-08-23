@@ -32,7 +32,7 @@ from rich import box
 from src.backtester import BacktestResult, run_backtest, LIMITATIONS
 from src.engine import DCFParams, ValuationResult, evaluate
 from src.fetcher import CacheStore, TickerData, fetch_universe, fetch_risk_free_rate
-from src.screener import ScreenerProfile, apply_profile, rank_all, apply_dow30_ranking, load_profiles, apply_magic_formula
+from src.screener import ScreenerProfile, apply_profile, rank_all, apply_dow30_ranking, load_profiles, apply_magic_formula, compute_sector_percentiles
 from src.universe import UniverseSource, get_universe
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -538,6 +538,8 @@ def run(args: argparse.Namespace) -> None:
         except Exception as exc:
             logging.warning("Evaluation failed for %s: %s", td.ticker, exc)
 
+    compute_sector_percentiles(valuation_results)
+
     ok_count       = sum(1 for r in valuation_results if r.status == "OK")
     trap_count     = sum(1 for r in valuation_results if r.status == "VALUE_TRAP")
     insuff_count   = sum(1 for r in valuation_results if r.status == "INSUFFICIENT_DATA")
@@ -593,6 +595,24 @@ def run(args: argparse.Namespace) -> None:
         console.print(f"[green]Saved:[/green] {path}")
     if failed_path:
         console.print(f"[dim]Failed tickers logged to:[/dim] {failed_path}")
+
+    # ── Score history ─────────────────────────────────────────────────────────
+    if not is_dow30_mode and args.export in ("csv", "both") and not export_df.empty:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_date = ts[:8]  # YYYYMMDD
+        profile_key = profile_name
+        history_rows = []
+        for _, row in export_df.iterrows():
+            history_rows.append({
+                "ticker":          row.get("Ticker", ""),
+                "run_date":        run_date,
+                "profile":         profile_key,
+                "composite_score": row.get("Score"),
+                "mos_pct":         row.get("MoS%"),
+                "profile_fit":     row.get("ProfileFit"),
+            })
+        if history_rows:
+            cache.append_score_history(history_rows)
 
     # ── Magic Formula ─────────────────────────────────────────────────────────
     if not is_dow30_mode and args.export in ("csv", "both"):

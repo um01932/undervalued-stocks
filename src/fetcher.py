@@ -231,6 +231,19 @@ CREATE TABLE IF NOT EXISTS balance_sheet (
 );
 """
 
+_CREATE_SCORE_HISTORY = """
+CREATE TABLE IF NOT EXISTS score_history (
+    ticker          VARCHAR NOT NULL,
+    run_date        VARCHAR NOT NULL,
+    profile         VARCHAR NOT NULL,
+    composite_score DOUBLE,
+    mos_pct         DOUBLE,
+    profile_fit     DOUBLE,
+    fetched_at      TIMESTAMP NOT NULL,
+    PRIMARY KEY (ticker, run_date, profile)
+)
+"""
+
 
 # ── CacheStore ────────────────────────────────────────────────────────────────
 
@@ -253,6 +266,7 @@ class CacheStore:
         self._conn_obj.execute(_CREATE_BALANCE_SHEET)
         self._conn_obj.execute(_CREATE_MACRO_DATA)
         self._conn_obj.execute(_CREATE_PRICE_HISTORY)
+        self._conn_obj.execute(_CREATE_SCORE_HISTORY)
         # Migrate: add new columns to existing caches that pre-date this schema
         existing_cols = {
             row[0] for row in self._conn_obj.execute(
@@ -530,6 +544,27 @@ class CacheStore:
                         fetched_at = EXCLUDED.fetched_at
                     """,
                     [ticker, date_str, close, now],
+                )
+
+
+    # ── Score history ─────────────────────────────────────────────────────────
+
+    def append_score_history(self, rows: list[dict]) -> None:
+        """Upsert score history rows. Each row: ticker, run_date, profile, composite_score, mos_pct, profile_fit."""
+        now_ts = _utcnow()
+        with self._lock:
+            for r in rows:
+                self._conn_obj.execute(
+                    """
+                    INSERT OR REPLACE INTO score_history
+                        (ticker, run_date, profile, composite_score, mos_pct, profile_fit, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        r["ticker"], r["run_date"], r["profile"],
+                        r.get("composite_score"), r.get("mos_pct"),
+                        r.get("profile_fit"), now_ts,
+                    ],
                 )
 
 
