@@ -2426,7 +2426,7 @@ def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
 
 
 def _bt_monthly_detail(monthly: list[dict]) -> str:
-    """Collapsible monthly detail table."""
+    """Collapsible trade detail table."""
     rows_html = ""
     for r in monthly:
         port_c = _return_colour(r["port"])
@@ -2436,8 +2436,11 @@ def _bt_monthly_detail(monthly: list[dict]) -> str:
         sb     = "+" if (r["bm"] or 0) >= 0 else ""
         se     = "+" if (r["excess"] or 0) >= 0 else ""
         tkrs   = " · ".join(r["tickers"])
+        entry  = r.get("entry", r["period"])[:7]   # YYYY-MM
+        exit_  = r.get("exit",  "")[:7]            # YYYY-MM
         rows_html += f"""<tr>
-          <td style="font-weight:700;white-space:nowrap">{r["period"]}</td>
+          <td style="font-weight:700;white-space:nowrap">{entry}</td>
+          <td style="color:#57606a;white-space:nowrap">{exit_}</td>
           <td class="r" style="color:{port_c};font-weight:700">{sp}{r["port"]:.2f}%</td>
           <td class="r" style="color:{bm_c}">{sb}{(r["bm"] or 0):.2f}%</td>
           <td class="r"><span class="{exc_c}">{se}{(r["excess"] or 0):.2f}%</span></td>
@@ -2449,12 +2452,13 @@ def _bt_monthly_detail(monthly: list[dict]) -> str:
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
                       padding:6px 0;user-select:none">
-        &#9654; Show month-by-month detail ({len(monthly)} periods)
+        &#9654; Show trade detail ({len(monthly)} trades)
       </summary>
       <div style="overflow-x:auto;margin-top:8px">
         <table class="bt-tbl" style="width:100%;font-size:12px">
           <thead><tr>
-            <th>Month</th>
+            <th>Entry</th>
+            <th>Exit</th>
             <th class="r">Portfolio</th>
             <th class="r">S&amp;P 500</th>
             <th class="r">Excess</th>
