@@ -2014,7 +2014,7 @@ def _add_months(year: int, month: int, n: int) -> tuple[int, int]:
 
 
 def _run_monthly_backtest(
-    tickers: list[str],                      # ranked list — top N used each month
+    tickers: list[str],                      # ranked list — top N used each period
     prices:  dict[str, dict[str, float]],    # {ticker: {date: close}}
     spx:     dict[str, float],               # {date: spx_close}
     holding_months: int,                     # 1, 3, 6, or 12
@@ -2023,32 +2023,27 @@ def _run_monthly_backtest(
     end_year:   int = 2025,
 ) -> dict:
     """
-    Monthly walk-forward simulation.
+    Non-overlapping walk-forward simulation.
 
-    Every month from Jan-{start_year} to Dec-{end_year}:
-      - Pick the top-N tickers from the ranked list that have price data
-      - Buy at start-of-month close, sell at close after holding_months months
-      - Equal-weight, no transaction costs
-      - Compare to S&P 500 over the same window
+    Trades are entered every `holding_months` months (non-overlapping):
+      - 1M hold  → 12 trades/year  (Jan, Feb, Mar, …)
+      - 3M hold  →  4 trades/year  (Jan, Apr, Jul, Oct)
+      - 6M hold  →  2 trades/year  (Jan, Jul)
+      - 12M hold →  1 trade/year   (Jan)
 
-    Returns a dict with monthly results, yearly aggregates, and summary stats.
+    This guarantees no overlapping windows so annual compounding produces
+    realistic returns (no double-counting the same price move).
     """
-    monthly_results = []
+    trade_results = []
 
-    # Generate all (year, month) pairs for the simulation window
-    periods = []
-    for y in range(start_year, end_year + 1):
-        for mo in range(1, 13):
-            periods.append((y, mo))
-
-    # Remove periods where exit would be beyond end_year+1 (incomplete data)
-    cutoff_year, cutoff_month = _add_months(end_year, 12, holding_months)
-
-    for year, month in periods:
+    # Build non-overlapping entry points: start Jan of start_year, step = holding_months
+    year, month = start_year, 1
+    while year < end_year or (year == end_year and month <= 12):
         exit_year, exit_month = _add_months(year, month, holding_months)
-        # Skip if exit is too far in the future
-        if (exit_year, exit_month) > (cutoff_year, cutoff_month):
-            continue
+        # Only include if exit is within our data window (≤ end of end_year + 1 month buffer)
+        ey_lim, em_lim = _add_months(end_year, 12, 1)
+        if (exit_year, exit_month) > (ey_lim, em_lim):
+            break
 
         # Entry: first trading day of this month
         entry_date = f"{year:04d}-{month:02d}-01"
@@ -2067,6 +2062,8 @@ def _run_monthly_backtest(
                 break
 
         if not picks:
+            # still advance the pointer
+            year, month = _add_months(year, month, holding_months)
             continue
 
         # Portfolio return = equal-weight average of individual returns
@@ -2084,7 +2081,7 @@ def _run_monthly_backtest(
         excess = port_ret - bm_ret if bm_ret is not None else None
         wins   = sum(1 for r in returns if r > (bm_ret or 0))
 
-        monthly_results.append({
+        trade_results.append({
             "year":    year,
             "month":   month,
             "period":  f"{year:04d}-{month:02d}",
@@ -2099,12 +2096,15 @@ def _run_monthly_backtest(
             "n_picks": len(picks),
         })
 
-    if not monthly_results:
+        # Advance to next non-overlapping entry
+        year, month = _add_months(year, month, holding_months)
+
+    if not trade_results:
         return {"monthly": [], "yearly": {}, "summary": {}}
 
-    # Aggregate by year
+    # Aggregate by year (each year contains 12/holding_months non-overlapping trades)
     yearly: dict[int, dict] = {}
-    for r in monthly_results:
+    for r in trade_results:
         y = r["year"]
         if y not in yearly:
             yearly[y] = {"port_rets": [], "bm_rets": [], "picks": 0, "wins": 0}
@@ -2117,16 +2117,16 @@ def _run_monthly_backtest(
     yearly_rows = []
     for y in sorted(yearly.keys()):
         d = yearly[y]
-        # Compound the monthly returns into an annual return
+        # Compound the non-overlapping trade returns for this year
         port_annual = 1.0
-        for mr in d["port_rets"]:
-            port_annual *= (1.0 + mr / 100.0)
+        for tr in d["port_rets"]:
+            port_annual *= (1.0 + tr / 100.0)
         port_annual = (port_annual - 1.0) * 100.0
 
         if d["bm_rets"]:
             bm_annual = 1.0
-            for mr in d["bm_rets"]:
-                bm_annual *= (1.0 + mr / 100.0)
+            for tr in d["bm_rets"]:
+                bm_annual *= (1.0 + tr / 100.0)
             bm_annual = (bm_annual - 1.0) * 100.0
         else:
             bm_annual = None
@@ -2145,50 +2145,52 @@ def _run_monthly_backtest(
             "win_rate": wr,
         })
 
-    # Summary stats over the full period
-    all_port_monthly = [r["port"] / 100.0 for r in monthly_results]
-    # CAGR via compounded monthly returns
+    # Summary stats — compound all non-overlapping trade returns
+    all_trade_rets = [r["port"] / 100.0 for r in trade_results]
     compound = 1.0
-    for mr in all_port_monthly:
-        compound *= (1.0 + mr)
-    n_months = len(all_port_monthly)
-    n_years  = n_months / 12.0
+    for tr in all_trade_rets:
+        compound *= (1.0 + tr)
+    n_trades = len(all_trade_rets)
+    # Number of effective years = total trades × holding_months / 12
+    n_years  = n_trades * holding_months / 12.0
     cagr_port = (compound ** (1.0 / n_years) - 1.0) * 100.0 if n_years > 0 else 0.0
 
-    # Benchmark CAGR
-    bm_monthly = [r["bm"] / 100.0 for r in monthly_results if r["bm"] is not None]
-    if bm_monthly:
+    # Benchmark CAGR (same non-overlapping windows)
+    bm_trade_rets = [r["bm"] / 100.0 for r in trade_results if r["bm"] is not None]
+    if bm_trade_rets:
         compound_bm = 1.0
-        for mr in bm_monthly:
-            compound_bm *= (1.0 + mr)
-        n_bm = len(bm_monthly) / 12.0
+        for tr in bm_trade_rets:
+            compound_bm *= (1.0 + tr)
+        n_bm = len(bm_trade_rets) * holding_months / 12.0
         cagr_bm = (compound_bm ** (1.0 / n_bm) - 1.0) * 100.0 if n_bm > 0 else 0.0
     else:
         cagr_bm = 0.0
 
-    # Sharpe (annualised, rf=0)
-    if len(all_port_monthly) > 1:
-        avg_m  = sum(all_port_monthly) / len(all_port_monthly)
-        std_m  = math.sqrt(sum((x - avg_m)**2 for x in all_port_monthly) / (len(all_port_monthly) - 1))
-        sharpe = round((avg_m / std_m) * math.sqrt(12), 2) if std_m > 0 else 0.0
+    # Sharpe — annualise per-trade returns
+    # Convert each trade return to annualised equivalent for consistency
+    ann_factor = 12.0 / holding_months    # trades per year
+    if len(all_trade_rets) > 1:
+        avg_t  = sum(all_trade_rets) / len(all_trade_rets)
+        std_t  = math.sqrt(sum((x - avg_t)**2 for x in all_trade_rets) / (len(all_trade_rets) - 1))
+        sharpe = round((avg_t / std_t) * math.sqrt(ann_factor), 2) if std_t > 0 else 0.0
     else:
         sharpe = 0.0
 
-    # Max drawdown (on compounded equity curve)
+    # Max drawdown on compounded equity curve
     equity = [1.0]
-    for mr in all_port_monthly:
-        equity.append(equity[-1] * (1.0 + mr))
+    for tr in all_trade_rets:
+        equity.append(equity[-1] * (1.0 + tr))
     peak, maxdd = equity[0], 0.0
     for v in equity:
         peak = max(peak, v)
         maxdd = max(maxdd, (peak - v) / peak * 100.0)
 
-    total_picks = sum(r["n_picks"] for r in monthly_results)
-    total_wins  = sum(r["wins"]    for r in monthly_results)
+    total_picks = sum(r["n_picks"] for r in trade_results)
+    total_wins  = sum(r["wins"]    for r in trade_results)
     win_rate    = total_wins / total_picks * 100.0 if total_picks else 0.0
 
     return {
-        "monthly":  monthly_results,
+        "monthly":  trade_results,   # kept as "monthly" key for rendering compat
         "yearly":   yearly_rows,
         "summary":  {
             "cagr_port": round(cagr_port, 2),
@@ -2197,7 +2199,7 @@ def _run_monthly_backtest(
             "sharpe":    sharpe,
             "maxdd":     round(-maxdd, 2),
             "win_rate":  round(win_rate, 1),
-            "n_months":  n_months,
+            "n_months":  n_trades,
             "n_picks":   total_picks,
         },
     }
@@ -2449,7 +2451,7 @@ def _build_backtest_section(
             <div style="flex:1;min-width:320px;background:#fff;border:1px solid #e5e7eb;
                         border-left:4px solid {scolour};border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:{scolour};margin-bottom:14px;
-                          letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · top 5 picks/month · {nm} periods</span></div>
+                          letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · top 5 picks · {nm} trades · non-overlapping</span></div>
               <!-- KPI row -->
               <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
                 <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
