@@ -288,7 +288,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
     <div class="subtitle">Multi-Universe (984 tickers analyzed) &nbsp;·&nbsp; 5 Screener Profiles &nbsp;·&nbsp;
       Magic Formula &nbsp;·&nbsp; Dow Jones 30 &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500</div>
     <div class="header-meta">
-      <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">24 August 2026, 10:56</div></div>
+      <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">24 August 2026, 10:59</div></div>
       <div class="hm-item"><div class="hm-label">Universe</div><div class="hm-value">Multi-Universe (984 tickers analyzed)</div></div>
       <div class="hm-item"><div class="hm-label">Strict Passed</div><div class="hm-value">88 (across 5 profiles)</div></div>
       <div class="hm-item"><div class="hm-label">Ranked Total</div><div class="hm-value">4920 rows</div></div>
@@ -86315,45 +86315,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #3b82d4;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#3b82d4;margin-bottom:14px;
                           letter-spacing:.02em">Top Overall &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 1 Month · top 5 picks · 60 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+8.3%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$14,934</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Overall &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+8.3%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-4.8%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.46</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-21.4%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">45%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#e11d48">$-3,599</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#3b82d4;font-weight:700">— Top Overall</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,741</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$14,322</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,904</text><polyline points="28.0,129.1 36.4,126.8 44.8,122.9 53.2,119.3 61.6,114.0 70.0,113.7 78.4,110.1 86.8,108.0 95.2,103.8 103.6,108.9 112.0,101.1 120.4,104.1 128.8,95.4 137.2,103.1 145.6,110.5 154.0,103.1 162.4,115.1 170.8,116.8 179.2,125.2 187.6,116.2 196.0,120.9 204.4,129.7 212.8,124.3 221.2,117.5 229.6,125.3 238.0,116.2 246.4,121.4 254.8,116.1 263.2,114.7 271.6,113.1 280.0,105.9 288.4,102.2 296.8,104.1 305.2,111.0 313.6,112.6 322.0,101.6 330.4,97.1 338.8,92.1 347.2,85.0 355.6,81.7 364.0,88.6 372.4,80.5 380.8,74.6 389.2,75.5 397.6,73.0 406.0,67.5 414.4,66.9 422.8,57.1 431.2,62.6 439.6,58.7 448.0,63.1 456.4,69.8 464.8,70.7 473.2,60.5 481.6,52.5 490.0,51.2 498.4,45.8 506.8,36.7 515.2,32.4 523.6,33.6 532.0,32.2" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,129.1 36.4,121.5 44.8,124.9 53.2,116.9 61.6,115.2 70.0,111.0 78.4,102.3 86.8,100.1 95.2,101.2 103.6,98.2 112.0,89.2 120.4,104.4 128.8,103.4 137.2,109.1 145.6,110.1 154.0,100.3 162.4,109.1 170.8,115.6 179.2,113.9 187.6,107.0 196.0,114.7 204.4,119.7 212.8,114.0 221.2,102.3 229.6,108.9 238.0,91.9 246.4,101.5 254.8,103.2 263.2,99.8 271.6,103.6 280.0,103.8 288.4,98.6 296.8,95.0 305.2,99.9 313.6,96.6 322.0,78.8 330.4,59.6 338.8,64.0 347.2,67.0 355.6,72.1 364.0,84.1 372.4,93.2 380.8,93.6 389.2,82.3 397.6,79.9 406.0,72.5 414.4,71.5 422.8,65.4 431.2,76.6 439.6,56.5 448.0,70.8 456.4,82.5 464.8,72.1 473.2,61.4 481.6,69.4 490.0,87.6 498.4,60.9 506.8,78.6 515.2,96.4 523.6,73.8 532.0,73.1" fill="none" stroke="#3b82d4" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="32.2" r="4" fill="#9ca3af"/><circle cx="532.0" cy="73.1" r="5" fill="#3b82d4"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+8.3%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-4.8%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.46</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-21.4%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">45%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -86455,7 +86492,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-neg" style="font-size:15px">-14.7%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -86901,45 +86938,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #7c3aed;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#7c3aed;margin-bottom:14px;
                           letter-spacing:.02em">Top Convictions &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 1 Month · top 5 picks · 60 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+21.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$26,015</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Convictions &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+21.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+7.9%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.99</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-15.0%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">53%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#16a34a">$+7,482</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#7c3aed;font-weight:700">— Top Convictions</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,741</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$19,457</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$29,174</text><polyline points="28.0,130.6 36.4,129.6 44.8,127.7 53.2,126.0 61.6,123.5 70.0,123.4 78.4,121.7 86.8,120.7 95.2,118.7 103.6,121.1 112.0,117.4 120.4,118.9 128.8,114.8 137.2,118.4 145.6,121.9 154.0,118.4 162.4,124.0 170.8,124.8 179.2,128.8 187.6,124.6 196.0,126.8 204.4,130.9 212.8,128.4 221.2,125.2 229.6,128.8 238.0,124.6 246.4,127.0 254.8,124.5 263.2,123.9 271.6,123.1 280.0,119.7 288.4,117.9 296.8,118.8 305.2,122.1 313.6,122.8 322.0,117.7 330.4,115.5 338.8,113.2 347.2,109.8 355.6,108.3 364.0,111.6 372.4,107.7 380.8,105.0 389.2,105.4 397.6,104.2 406.0,101.6 414.4,101.3 422.8,96.7 431.2,99.3 439.6,97.4 448.0,99.5 456.4,102.7 464.8,103.1 473.2,98.3 481.6,94.5 490.0,93.9 498.4,91.4 506.8,87.1 515.2,85.0 523.6,85.6 532.0,84.9" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,130.6 36.4,125.5 44.8,117.7 53.2,111.0 61.6,108.3 70.0,104.5 78.4,101.9 86.8,105.5 95.2,100.0 103.6,99.7 112.0,91.8 120.4,101.3 128.8,95.1 137.2,90.6 145.6,96.0 154.0,90.6 162.4,95.4 170.8,91.8 179.2,99.7 187.6,93.5 196.0,99.8 204.4,101.4 212.8,94.6 221.2,88.0 229.6,91.3 238.0,76.0 246.4,82.9 254.8,87.9 263.2,87.0 271.6,91.3 280.0,85.8 288.4,79.4 296.8,76.9 305.2,83.2 313.6,79.9 322.0,71.0 330.4,71.5 338.8,77.0 347.2,77.8 355.6,69.5 364.0,72.7 372.4,75.2 380.8,76.4 389.2,68.6 397.6,67.9 406.0,69.8 414.4,70.8 422.8,65.7 431.2,65.8 439.6,58.3 448.0,52.8 456.4,54.5 464.8,56.8 473.2,50.2 481.6,45.6 490.0,51.9 498.4,31.1 506.8,31.5 515.2,54.0 523.6,49.3 532.0,44.9" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="84.9" r="4" fill="#9ca3af"/><circle cx="532.0" cy="44.9" r="5" fill="#7c3aed"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+21.1%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+7.9%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.99</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-15.0%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">53%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -87041,7 +87115,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-pos" style="font-size:15px">+0.8%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -87491,45 +87565,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #3b82d4;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#3b82d4;margin-bottom:14px;
                           letter-spacing:.02em">Top Overall &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 3 Months · top 5 picks · 20 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+9.0%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$15,389</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Overall &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+9.0%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-4.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.56</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-16.9%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">51%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#e11d48">$-3,144</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#3b82d4;font-weight:700">— Top Overall</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,741</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$14,322</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,904</text><polyline points="28.0,129.1 53.2,119.3 78.4,110.1 103.6,108.9 128.8,95.4 154.0,103.1 179.2,125.2 204.4,129.7 229.6,125.3 254.8,116.1 280.0,105.9 305.2,111.0 330.4,97.1 355.6,81.7 380.8,74.6 406.0,67.5 431.2,62.6 456.4,69.8 481.6,52.5 506.8,36.7 532.0,32.2" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,129.1 53.2,116.1 78.4,102.5 103.6,98.2 128.8,104.2 154.0,101.6 179.2,115.2 204.4,121.2 229.6,109.9 254.8,105.3 280.0,106.6 305.2,102.5 330.4,63.9 355.6,74.2 380.8,94.1 406.0,73.4 431.2,74.0 456.4,79.0 481.6,68.0 506.8,76.5 532.0,67.9" fill="none" stroke="#3b82d4" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="32.2" r="4" fill="#9ca3af"/><circle cx="532.0" cy="67.9" r="5" fill="#3b82d4"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+9.0%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-4.1%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.56</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-16.9%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">51%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -87631,7 +87742,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-neg" style="font-size:15px">-13.3%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -87797,45 +87908,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #7c3aed;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#7c3aed;margin-bottom:14px;
                           letter-spacing:.02em">Top Convictions &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 3 Months · top 5 picks · 20 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+20.8%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$25,707</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Convictions &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+20.8%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+7.7%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">1.10</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-12.3%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">53%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#16a34a">$+7,174</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#7c3aed;font-weight:700">— Top Convictions</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,741</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$19,023</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$28,304</text><polyline points="28.0,130.5 53.2,125.7 78.4,121.2 103.6,120.6 128.8,114.0 154.0,117.8 179.2,128.7 204.4,130.9 229.6,128.7 254.8,124.1 280.0,119.1 305.2,121.7 330.4,114.8 355.6,107.2 380.8,103.7 406.0,100.1 431.2,97.7 456.4,101.3 481.6,92.7 506.8,85.0 532.0,82.7" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,130.5 53.2,110.8 78.4,101.6 103.6,100.1 128.8,95.0 154.0,89.6 179.2,99.4 204.4,101.5 229.6,91.0 254.8,87.8 280.0,85.7 305.2,82.8 330.4,71.0 355.6,68.7 380.8,75.5 406.0,68.5 431.2,64.4 456.4,53.7 481.6,45.7 506.8,31.1 532.0,42.5" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="82.7" r="4" fill="#9ca3af"/><circle cx="532.0" cy="42.5" r="5" fill="#7c3aed"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+20.8%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+7.7%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">1.10</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-12.3%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">53%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -87937,7 +88085,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-pos" style="font-size:15px">+1.0%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -88107,45 +88255,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #3b82d4;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#3b82d4;margin-bottom:14px;
                           letter-spacing:.02em">Top Overall &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 6 Months · top 5 picks · 10 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+8.7%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$15,160</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Overall &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+8.7%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-4.5%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.51</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-15.3%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">44%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#e11d48">$-3,373</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#3b82d4;font-weight:700">— Top Overall</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,800</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$14,352</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,904</text><polyline points="28.0,129.7 78.4,110.6 128.8,95.9 179.2,125.9 229.6,125.9 280.0,106.4 330.4,97.5 380.8,74.9 431.2,62.8 481.6,52.6 532.0,32.2" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,129.7 78.4,104.6 128.8,105.7 179.2,116.7 229.6,112.4 280.0,109.6 330.4,66.1 380.8,93.3 431.2,76.7 481.6,69.9 532.0,70.8" fill="none" stroke="#3b82d4" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="32.2" r="4" fill="#9ca3af"/><circle cx="532.0" cy="70.8" r="5" fill="#3b82d4"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+8.7%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-4.5%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.51</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-15.3%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">44%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -88247,7 +88432,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-neg" style="font-size:15px">-13.3%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -88343,45 +88528,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #7c3aed;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#7c3aed;margin-bottom:14px;
                           letter-spacing:.02em">Top Convictions &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 6 Months · top 5 picks · 10 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+21.8%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$26,852</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Convictions &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+21.8%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+8.7%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">1.01</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-4.6%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">54%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#16a34a">$+8,319</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#7c3aed;font-weight:700">— Top Convictions</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,800</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,594</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$27,389</text><polyline points="28.0,130.8 78.4,120.9 128.8,113.3 179.2,128.8 229.6,128.8 280.0,118.8 330.4,114.2 380.8,102.5 431.2,96.2 481.6,90.9 532.0,80.4" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,130.8 78.4,100.0 128.8,93.2 179.2,97.6 229.6,89.1 280.0,83.4 330.4,67.3 380.8,70.3 431.2,57.2 481.6,36.4 532.0,31.2" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="80.4" r="4" fill="#9ca3af"/><circle cx="532.0" cy="31.2" r="5" fill="#7c3aed"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+21.8%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+8.7%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">1.01</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-4.6%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">54%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -88483,7 +88705,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-pos" style="font-size:15px">+2.7%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -88583,45 +88805,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #3b82d4;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#3b82d4;margin-bottom:14px;
                           letter-spacing:.02em">Top Overall &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 1 Year · top 5 picks · 5 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+8.5%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$15,038</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Overall &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+8.5%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-4.6%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.53</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-6.9%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">48%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#e11d48">$-3,495</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#3b82d4;font-weight:700">— Top Overall</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,800</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$14,352</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,904</text><polyline points="28.0,129.7 128.8,95.9 229.6,125.9 330.4,97.5 431.2,62.8 532.0,32.2" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,129.7 128.8,106.5 229.6,116.0 330.4,69.6 431.2,74.8 532.0,72.2" fill="none" stroke="#3b82d4" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="32.2" r="4" fill="#9ca3af"/><circle cx="532.0" cy="72.2" r="5" fill="#3b82d4"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+8.5%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-4.6%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.53</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-6.9%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">48%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Overall (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -88723,7 +88982,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-neg" style="font-size:15px">-15.3%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -88784,45 +89043,82 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
                         border-left:4px solid #7c3aed;border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:#7c3aed;margin-bottom:14px;
                           letter-spacing:.02em">Top Convictions &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold 1 Year · top 5 picks · 5 trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+21.8%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#16a34a">$26,815</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    Top Convictions &nbsp;·&nbsp; CAGR <strong style="color:#16a34a">+21.8%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#16a34a">+8.7%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">$18,533</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>+13.1%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">+13.1%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">0.97</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">-0.0%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">56%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:#16a34a">$+8,281</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:#7c3aed;font-weight:700">— Top Convictions</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                <svg viewBox="0 0 560 160" style="width:100%;max-width:560px;height:160px;display:block;overflow:visible"><line x1="28" y1="132.0" x2="532" y2="132.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="136.0" text-anchor="end" font-size="9" fill="#9ca3af">$9,800</text><line x1="28" y1="80.0" x2="532" y2="80.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="84.0" text-anchor="end" font-size="9" fill="#9ca3af">$18,575</text><line x1="28" y1="28.0" x2="532" y2="28.0" stroke="#e5e7eb" stroke-width="1"/><text x="24" y="32.0" text-anchor="end" font-size="9" fill="#9ca3af">$27,351</text><polyline points="28.0,130.8 128.8,113.3 229.6,128.8 330.4,114.1 431.2,96.1 532.0,80.3" fill="none" stroke="#9ca3af" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round"/><polyline points="28.0,130.8 128.8,92.5 229.6,89.7 330.4,67.0 431.2,53.2 532.0,31.2" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/><circle cx="532.0" cy="80.3" r="4" fill="#9ca3af"/><circle cx="532.0" cy="31.2" r="5" fill="#7c3aed"/></svg>
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+21.8%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#16a34a">+8.7%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">0.97</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">-0.0%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">56%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               <div class="chart-wrap">
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">Top Convictions (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
                     background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
@@ -88924,7 +89220,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
             <div class="excess-neg" style="font-size:15px">-0.7%</div>
           </div>
         </div></div>
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
@@ -89594,7 +89890,7 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
   <div class="footer">
     <p>Generated by <strong>Stock Screener &amp; Intrinsic Value Engine v2</strong>
       &nbsp;·&nbsp; Python 3.11+ &nbsp;·&nbsp; yfinance &nbsp;·&nbsp; DuckDB &nbsp;·&nbsp; 100% local execution</p>
-    <p style="margin-top:6px">Report generated: 24 August 2026, 10:56</p>
+    <p style="margin-top:6px">Report generated: 24 August 2026, 10:59</p>
     <p style="margin-top:6px;color:#c0c4cb">For informational and educational purposes only. Not financial advice.</p>
     <p style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">Made with IBM Bob</p>
   </div>
