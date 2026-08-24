@@ -2013,8 +2013,41 @@ def _add_months(year: int, month: int, n: int) -> tuple[int, int]:
     return year, month
 
 
+def _momentum_rank(
+    tickers: list[str],
+    prices:  dict[str, dict[str, float]],
+    as_of_date: str,
+    lookback_months: int = 12,
+) -> list[str]:
+    """
+    Re-rank tickers by 12-month price momentum as of `as_of_date`.
+    Only uses price data available BEFORE that date — no look-ahead.
+    Returns tickers sorted best momentum first.
+    Falls back to the original order for tickers with no historical data.
+    """
+    look_back_y, look_back_m = _add_months(
+        int(as_of_date[:4]), int(as_of_date[5:7]), -lookback_months
+    )
+    lookback_date = f"{look_back_y:04d}-{look_back_m:02d}-01"
+
+    scored = []
+    no_data = []
+    for tkr in tickers:
+        tp = prices.get(tkr, {})
+        p_now  = _price_on_or_after(tp, as_of_date)
+        p_then = _price_on_or_after(tp, lookback_date)
+        if p_now and p_then and p_then > 0:
+            momentum = (p_now / p_then - 1.0) * 100.0
+            scored.append((tkr, momentum))
+        else:
+            no_data.append(tkr)
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [t for t, _ in scored] + no_data
+
+
 def _run_monthly_backtest(
-    tickers: list[str],                      # ranked list — top N used each period
+    tickers: list[str],                      # candidate universe — re-ranked each period
     prices:  dict[str, dict[str, float]],    # {ticker: {date: close}}
     spx:     dict[str, float],               # {date: spx_close}
     holding_months: int,                     # 1, 3, 6, or 12
@@ -2023,16 +2056,18 @@ def _run_monthly_backtest(
     end_year:   int = 2025,
 ) -> dict:
     """
-    Non-overlapping walk-forward simulation.
+    Non-overlapping walk-forward simulation with dynamic ranking.
+
+    At each entry date, tickers are re-ranked by 12-month price momentum
+    using only data available up to that date (no look-ahead within the
+    simulation window). The static screener ranking acts only as the
+    candidate universe — which stocks to consider — not the fixed order.
 
     Trades are entered every `holding_months` months (non-overlapping):
       - 1M hold  → 12 trades/year  (Jan, Feb, Mar, …)
       - 3M hold  →  4 trades/year  (Jan, Apr, Jul, Oct)
       - 6M hold  →  2 trades/year  (Jan, Jul)
       - 12M hold →  1 trade/year   (Jan)
-
-    This guarantees no overlapping windows so annual compounding produces
-    realistic returns (no double-counting the same price move).
     """
     trade_results = []
 
@@ -2050,9 +2085,12 @@ def _run_monthly_backtest(
         # Exit: first trading day of exit month
         exit_date  = f"{exit_year:04d}-{exit_month:02d}-01"
 
-        # Pick top-N tickers that have both entry and exit prices
+        # Re-rank the candidate universe by 12M momentum as of entry_date
+        ranked_at_entry = _momentum_rank(tickers, prices, entry_date, lookback_months=12)
+
+        # Pick top-N from dynamically ranked list that have both entry and exit prices
         picks = []
-        for tkr in tickers:
+        for tkr in ranked_at_entry:
             tp = prices.get(tkr, {})
             ep = _price_on_or_after(tp, entry_date)
             xp = _price_on_or_after(tp, exit_date)
@@ -2686,9 +2724,13 @@ def _build_backtest_section(
           <p style="margin:0 0 8px;font-weight:700;color:#1f2328">Step-by-step mechanics</p>
           <ol style="margin:0 0 16px;padding-left:20px">
             <li style="margin-bottom:8px">
-              <strong>Pick selection</strong> — at each entry date the screener ranks all tickers by
-              its composite score. The <strong>top 5</strong> with available price data are selected.
-              Each position gets an equal 20% of the total capital (equal-weighted).
+              <strong>Pick selection (dynamic at each entry)</strong> — the screener's top-ranked
+              tickers form the <em>candidate universe</em>. At each entry date, those candidates are
+              re-ranked by their <strong>12-month price momentum</strong> up to that exact date —
+              using only data available at the time, no look-ahead within the simulation window.
+              The <strong>top 5</strong> by momentum are selected. This means the portfolio changes
+              at every rebalance: different stocks in Jan 2021 vs Jul 2022 vs Jan 2024.
+              Each position gets an equal 20% of total capital (equal-weighted).
             </li>
             <li style="margin-bottom:8px">
               <strong>Entry</strong> — you "buy" all 5 at the closing price on the first trading day
@@ -2783,15 +2825,16 @@ def _build_backtest_section(
             All capital (profit + principal) is reinvested each time.
           </p>
 
-          <p style="margin:14px 0 8px;font-weight:700;color:#d97706">⚠ Why results are optimistic (look-ahead bias)</p>
+          <p style="margin:14px 0 8px;font-weight:700;color:#d97706">⚠ Remaining look-ahead bias</p>
           <p style="margin:0;font-size:12px;color:#57606a">
-            The screener uses <strong>today's financial data</strong> to decide which stocks to "buy"
-            in 2021, 2022, 2023. In reality, you could not have known in January 2021 which companies
-            would score highest by 2025. This means the simulated returns are likely <em>better</em>
-            than what a real investor would have achieved. Use this backtest to validate that
-            <strong>the screening logic has directional merit</strong> — not to predict future returns.
-            Also note: survivorship bias (only currently-listed companies), no transaction costs, and
-            no slippage are modelled.
+            The <strong>candidate universe</strong> (which stocks are even considered) is based on
+            today's screener rankings. A company that scores highly today may have had poor
+            fundamentals in 2021 — but it's still in the pool. The <em>within-simulation ranking</em>
+            (which of those candidates to buy at each date) is clean — based on historical momentum
+            only. Think of it as: <em>"the screener tells us the right stocks to watch; momentum
+            tells us when to buy them."</em> Results are likely <em>somewhat optimistic</em> due to
+            the biased candidate pool, but far more realistic than a fixed static ranking.
+            Also: survivorship bias (only currently-listed companies), no transaction costs, no slippage.
           </p>
 
         </div>
