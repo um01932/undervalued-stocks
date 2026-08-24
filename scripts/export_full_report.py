@@ -2189,9 +2189,50 @@ def _run_monthly_backtest(
     total_wins  = sum(r["wins"]    for r in trade_results)
     win_rate    = total_wins / total_picks * 100.0 if total_picks else 0.0
 
+    # ── Equity curve: $10,000 compounded through every trade ─────────────────
+    INITIAL = 10_000.0
+    port_equity = [INITIAL]
+    for tr in all_trade_rets:
+        port_equity.append(port_equity[-1] * (1.0 + tr))
+
+    bm_equity = [INITIAL]
+    for tr in bm_trade_rets:
+        bm_equity.append(bm_equity[-1] * (1.0 + tr))
+    # Pad bm to same length if needed
+    while len(bm_equity) < len(port_equity):
+        bm_equity.append(bm_equity[-1])
+
+    port_final = port_equity[-1]
+    bm_final   = bm_equity[-1]
+
+    # ── True SPX annual returns: Jan 1 → Jan 1 of next year ──────────────────
+    # Used for "real" year-by-year SPX comparison independent of holding period
+    spx_annual: dict[int, float | None] = {}
+    for y in range(start_year, end_year + 1):
+        jan_entry = f"{y:04d}-01-01"
+        jan_exit  = f"{y+1:04d}-01-01"
+        sp_ep = _price_on_or_after(spx, jan_entry)
+        sp_xp = _price_on_or_after(spx, jan_exit)
+        if sp_ep and sp_xp and sp_ep > 0:
+            spx_annual[y] = (sp_xp / sp_ep - 1.0) * 100.0
+        else:
+            spx_annual[y] = None
+
+    # Patch yearly_rows with true SPX annual returns
+    for row in yearly_rows:
+        row["bm_true"] = spx_annual.get(row["year"])
+        row["excess_true"] = (
+            row["port"] - row["bm_true"]
+            if row["bm_true"] is not None else None
+        )
+
     return {
-        "monthly":  trade_results,   # kept as "monthly" key for rendering compat
-        "yearly":   yearly_rows,
+        "monthly":    trade_results,   # kept as "monthly" key for rendering compat
+        "yearly":     yearly_rows,
+        "port_equity": port_equity,    # list of floats, len = n_trades+1
+        "bm_equity":   bm_equity,
+        "port_final":  round(port_final, 2),
+        "bm_final":    round(bm_final,   2),
         "summary":  {
             "cagr_port": round(cagr_port, 2),
             "cagr_bm":   round(cagr_bm,   2),
@@ -2247,14 +2288,71 @@ def _bt_kpi_bar(s: dict) -> str:
     </div>"""
 
 
+def _bt_equity_svg(port_eq: list[float], bm_eq: list[float],
+                   port_colour: str = "#3b82d4") -> str:
+    """
+    SVG line chart of $10,000 compounded equity curve.
+    port_eq and bm_eq are lists of portfolio values (len = n_trades+1).
+    """
+    W, H, PAD = 560, 160, 28
+    all_vals = port_eq + bm_eq
+    mn = min(all_vals) * 0.98
+    mx = max(all_vals) * 1.02
+    span_v = mx - mn or 1.0
+    n = max(len(port_eq), len(bm_eq)) - 1 or 1
+
+    def pts(eq: list[float]) -> str:
+        out = []
+        for i, v in enumerate(eq):
+            x = round(PAD + i / n * (W - 2 * PAD), 1)
+            y = round(H - PAD - (v - mn) / span_v * (H - 2 * PAD), 1)
+            out.append(f"{x},{y}")
+        return " ".join(out)
+
+    # Y-axis reference lines
+    y_refs = ""
+    for ref in [mn, (mn + mx) / 2, mx]:
+        y = round(H - PAD - (ref - mn) / span_v * (H - 2 * PAD), 1)
+        lbl = f"${ref:,.0f}"
+        y_refs += (
+            f'<line x1="{PAD}" y1="{y}" x2="{W - PAD}" y2="{y}" '
+            f'stroke="#e5e7eb" stroke-width="1"/>'
+            f'<text x="{PAD - 4}" y="{y + 4}" text-anchor="end" '
+            f'font-size="9" fill="#9ca3af">{lbl}</text>'
+        )
+
+    port_pts = pts(port_eq)
+    bm_pts   = pts(bm_eq)
+    # Final dots
+    px_last = round(PAD + (len(port_eq) - 1) / n * (W - 2 * PAD), 1)
+    py_last = round(H - PAD - (port_eq[-1] - mn) / span_v * (H - 2 * PAD), 1)
+    bx_last = round(PAD + (len(bm_eq) - 1) / n * (W - 2 * PAD), 1)
+    by_last = round(H - PAD - (bm_eq[-1] - mn) / span_v * (H - 2 * PAD), 1)
+
+    return (
+        f'<svg viewBox="0 0 {W} {H}" style="width:100%;max-width:{W}px;height:{H}px;'
+        f'display:block;overflow:visible">'
+        f'{y_refs}'
+        f'<polyline points="{bm_pts}" fill="none" stroke="#9ca3af" stroke-width="2" '
+        f'stroke-dasharray="4 3" stroke-linejoin="round"/>'
+        f'<polyline points="{port_pts}" fill="none" stroke="{port_colour}" stroke-width="2.5" '
+        f'stroke-linejoin="round"/>'
+        f'<circle cx="{bx_last}" cy="{by_last}" r="4" fill="#9ca3af"/>'
+        f'<circle cx="{px_last}" cy="{py_last}" r="5" fill="{port_colour}"/>'
+        f'</svg>'
+    )
+
+
 def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
-    """Render the horizontal dual-bar chart for yearly returns."""
+    """Render the horizontal dual-bar chart for yearly returns.
+    Uses bm_true (Jan→Jan SPX) for the benchmark bar, not the trade-segmented BM."""
     all_vals = []
     for r in yearly_rows:
-        if r["port"] is not None: all_vals.append(abs(r["port"]))
-        if r["bm"]   is not None: all_vals.append(abs(r["bm"]))
+        if r.get("port") is not None: all_vals.append(abs(r["port"]))
+        bm_display = r.get("bm_true") if r.get("bm_true") is not None else r.get("bm")
+        if bm_display is not None: all_vals.append(abs(bm_display))
     max_abs = max(all_vals) if all_vals else 30.0
-    scale   = 50.0 / (max_abs + 2.0)     # 50% of track width = max_abs %
+    scale   = 50.0 / (max_abs + 2.0)
 
     def _bar(val: float | None, colour: str) -> str:
         if val is None:
@@ -2285,20 +2383,21 @@ def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
     <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">{portfolio_label}</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">{portfolio_label} (annual, compounded trades)</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
-        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500 (Jan–Jan real)</span>
       </div>
-      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">right = gain &nbsp;|&nbsp; left = loss</div>
     </div>"""
 
     for r in yearly_rows:
         yr  = r["year"]
         pv  = r["port"]
-        bv  = r["bm"]
-        ev  = r["excess"]
+        # Use true Jan→Jan SPX as benchmark bar
+        bv  = r.get("bm_true") if r.get("bm_true") is not None else r.get("bm")
+        ev  = r.get("excess_true") if r.get("excess_true") is not None else r.get("excess")
         exc_c = "excess-pos" if (ev or 0) >= 0 else "excess-neg"
         html += f"""
         <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
@@ -2444,6 +2543,14 @@ def _build_backtest_section(
             se  = "+" if exc >= 0 else ""
             sb  = "+" if cb  >= 0 else ""
 
+            port_eq = res.get("port_equity", [10000.0])
+            bm_eq   = res.get("bm_equity",   [10000.0])
+            pf      = res.get("port_final",  port_eq[-1])
+            bf      = res.get("bm_final",    bm_eq[-1])
+            pf_c    = _return_colour(pf - 10000)
+            bf_c    = "#57606a"
+
+            equity_svg    = _bt_equity_svg(port_eq, bm_eq, scolour)
             yearly_chart  = _bt_yearly_chart(yr, slabel)
             monthly_dtail = _bt_monthly_detail(mo)
 
@@ -2452,36 +2559,73 @@ def _build_backtest_section(
                         border-left:4px solid {scolour};border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:{scolour};margin-bottom:14px;
                           letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · top 5 picks · {nm} trades · non-overlapping</span></div>
-              <!-- KPI row -->
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:{cc}">{sp}{cp:.1f}%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+
+              <!-- $10,000 final value box -->
+              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+                          background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
+                <div style="flex:1;min-width:130px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    $10,000 invested Jan 2021 →
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:{pf_c}">${pf:,.0f}</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    {slabel} &nbsp;·&nbsp; CAGR <strong style="color:{pf_c}">{sp}{cp:.1f}%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:{ec}">{se}{exc:.1f}%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+                    vs S&amp;P 500 same period
+                  </div>
+                  <div style="font-size:26px;font-weight:900;color:{bf_c}">${bf:,.0f}</div>
+                  <div style="font-size:11px;color:#57606a;margin-top:2px">
+                    S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>{sb}{cb:.1f}%/yr</strong>
+                  </div>
                 </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#57606a">{sb}{cb:.1f}%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">{sh:.2f}</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800;color:#e11d48">{dd:.1f}%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
-                </div>
-                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
-                  <div style="font-size:22px;font-weight:800">{wr:.0f}%</div>
-                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                  <div>
+                    <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
+                    <div style="font-size:22px;font-weight:900;color:{_return_colour(pf - bf)}">${pf - bf:+,.0f}</div>
+                  </div>
                 </div>
               </div>
-              <!-- Yearly chart -->
+
+              <!-- Equity curve SVG -->
+              <div style="margin-bottom:8px">
+                <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                            letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;font-size:10px">
+                  <span style="color:{scolour};font-weight:700">— {slabel}</span>
+                  <span style="color:#9ca3af">- - - S&amp;P 500</span>
+                </div>
+                {equity_svg}
+              </div>
+
+              <!-- KPI row -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:{cc}">{sp}{cp:.1f}%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:{ec}">{se}{exc:.1f}%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">{sh:.2f}</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800;color:#e11d48">{dd:.1f}%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="font-size:18px;font-weight:800">{wr:.0f}%</div>
+                  <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Annual bar chart -->
               {yearly_chart}
-              <!-- Monthly detail collapsible -->
+              <!-- Trade detail collapsible -->
               {monthly_dtail}
             </div>"""
 
