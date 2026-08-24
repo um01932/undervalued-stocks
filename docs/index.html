@@ -318,7 +318,7 @@ function toggleWhy(id) {
     <div class="subtitle">Multi-Universe (984 tickers analyzed) &nbsp;·&nbsp; 5 Screener Profiles &nbsp;·&nbsp;
       Magic Formula &nbsp;·&nbsp; Dow Jones 30 &nbsp;·&nbsp; Walk-Forward Backtest vs S&amp;P 500</div>
     <div class="header-meta">
-      <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">24 August 2026, 11:49</div></div>
+      <div class="hm-item"><div class="hm-label">Generated</div><div class="hm-value">24 August 2026, 11:58</div></div>
       <div class="hm-item"><div class="hm-label">Universe</div><div class="hm-value">Multi-Universe (984 tickers analyzed)</div></div>
       <div class="hm-item"><div class="hm-label">Strict Passed</div><div class="hm-value">88 (across 5 profiles)</div></div>
       <div class="hm-item"><div class="hm-label">Ranked Total</div><div class="hm-value">4920 rows</div></div>
@@ -86343,129 +86343,260 @@ function toggleWhy(id) {
                     border-radius:0 0 8px 8px;padding:20px 22px;font-size:13px;
                     line-height:1.75;color:#374151">
 
-          <p style="margin:0 0 14px">
-            <strong>The core idea:</strong> we pretend you invested $10,000 on 1 January 2021 using
-            the screener's current top picks, then reinvested everything at each rebalance date — no
-            withdrawals, no partial exits. At the same time, we track what $10,000 in the S&amp;P 500
-            index would have grown to. The final numbers answer the question:
-            <em>"Would this strategy have beaten a simple index fund?"</em>
+          <!-- ── 1. Overview ── -->
+          <p style="margin:0 0 6px;font-size:15px;font-weight:800;color:#1f2328">What is this?</p>
+          <p style="margin:0 0 16px">
+            A <strong>walk-forward simulation</strong> that asks: <em>"If I had used this screener's
+            top picks every rebalance period starting January 2021, how much would $10,000 be worth
+            today — and how does that compare to just buying the S&amp;P 500?"</em><br>
+            Every trade uses only price data that was <strong>available at the time of entry</strong>.
+            No future prices are peeked at inside the simulation window.
           </p>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">Step-by-step mechanics</p>
-          <ol style="margin:0 0 16px;padding-left:20px">
+          <!-- ── 2. Data sources ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Data sources</p>
+          <ul style="margin:0 0 16px;padding-left:20px;font-size:12px;color:#374151">
+            <li style="margin-bottom:5px">
+              <strong>Stock prices:</strong> daily adjusted closing prices from
+              <strong>Yahoo Finance</strong> (via yfinance), fetched from <strong>January 2020</strong>
+              to today, cached locally in DuckDB (<code>ohlcv_cache</code> table).
+              "Adjusted" means splits and dividends are already baked in — the price series reflects
+              total return, not just price appreciation.
+            </li>
+            <li style="margin-bottom:5px">
+              <strong>S&amp;P 500 benchmark:</strong> <code>^GSPC</code> daily closes from Yahoo
+              Finance, same date range.
+            </li>
+            <li style="margin-bottom:5px">
+              <strong>Candidate universe:</strong> the <strong>top 40 tickers</strong> from today's
+              screener run — 20 from the "Top Overall" ranking and 20 from the "Top Convictions"
+              ranking. These are the stocks the screener <em>currently</em> considers best-valued.
+            </li>
+            <li>
+              <strong>Entry / exit prices:</strong> the adjusted closing price on the <strong>first
+              available trading day</strong> of the target month (scanned forward up to 10 calendar
+              days to skip weekends and holidays).
+            </li>
+          </ul>
+
+          <!-- ── 3. Exact algorithm ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Exact algorithm — step by step</p>
+          <ol style="margin:0 0 16px;padding-left:20px;font-size:12px;color:#374151">
             <li style="margin-bottom:8px">
-              <strong>Pick selection (dynamic at each entry)</strong> — the screener's top-ranked
-              tickers form the <em>candidate universe</em>. At each entry date, those candidates are
-              re-ranked by their <strong>12-month price momentum</strong> up to that exact date —
-              using only data available at the time, no look-ahead within the simulation window.
-              The <strong>top 5</strong> by momentum are selected. This means the portfolio changes
-              at every rebalance: different stocks in Jan 2021 vs Jul 2022 vs Jan 2024.
-              Each position gets an equal 20% of total capital (equal-weighted).
+              <strong>Build the trade schedule.</strong> Starting from <strong>January 2021</strong>,
+              generate non-overlapping entry dates spaced exactly <em>holding_months</em> apart
+              (e.g. Jan → Apr → Jul → Oct for 3M). The simulation ends at <strong>December 2025</strong>
+              (or when no exit price is available).
             </li>
             <li style="margin-bottom:8px">
-              <strong>Entry</strong> — you "buy" all 5 at the closing price on the first trading day
-              of the entry month.
+              <strong>Dynamic momentum re-rank.</strong> At each entry date, take the candidate universe
+              (the 40 screener tickers) and sort them by their <strong>12-month trailing price return</strong>
+              calculated using only data up to that entry date — specifically:
+              <code>momentum = price_on_entry_date / price_12_months_earlier − 1</code>.
+              Tickers with no historical price data fall to the bottom. This ranking changes every period —
+              the 5 picks in Jan 2021 may be completely different from the 5 picks in Jul 2023.
             </li>
             <li style="margin-bottom:8px">
-              <strong>Holding period</strong> — you hold for the number of months shown in the
-              selected tab (1M, 3M, 6M, or 1Y) without doing anything.
+              <strong>Pick top 5.</strong> Select the first 5 tickers from the momentum-ranked list
+              that have a valid closing price on both the entry date <em>and</em> the exit date.
+              Each gets an equal <strong>20% of total portfolio capital</strong> (equal-weighted).
             </li>
             <li style="margin-bottom:8px">
-              <strong>Exit &amp; reinvest</strong> — on the first trading day of the exit month you
-              "sell" all 5 positions. The total proceeds (original capital + profit or loss) become
-              the new capital for the next trade. <em>100% is reinvested every time.</em>
+              <strong>Calculate trade return.</strong>
+              For each pick: <code>stock_return = exit_price / entry_price − 1</code>.
+              Portfolio return = simple average of the 5 individual returns (equal weight).
+            </li>
+            <li style="margin-bottom:8px">
+              <strong>Compound capital.</strong> New capital = previous capital × (1 + portfolio_return).
+              Starting capital: <strong>$10,000</strong>. 100% is reinvested every trade — no cash drag.
+            </li>
+            <li style="margin-bottom:8px">
+              <strong>Benchmark comparison.</strong> The S&amp;P 500 return is measured over the
+              <em>exact same entry–exit window</em> as each trade, and compounded separately the same way.
+              The annual bar chart uses <strong>true calendar-year returns</strong> (Jan 1 → Jan 1)
+              for the S&amp;P 500, independent of holding period.
             </li>
             <li style="margin-bottom:0">
-              <strong>Repeat</strong> — the cycle restarts immediately. Trades are
-              <strong>non-overlapping</strong>: the next entry happens only after the previous exit.
+              <strong>Aggregate.</strong> CAGR, Sharpe, max drawdown, and win rate are computed across
+              all trades in the simulation. A trade is a <em>Win</em> if the portfolio return exceeded
+              the S&amp;P 500 return over that exact same window.
             </li>
           </ol>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">
-            Concrete example — 3-Month holding (3M tab)
+          <!-- ── 4. Concrete example ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">
+            Concrete example — 3M tab (4 trades/year, 20 total over 5 years)
           </p>
-          <div style="overflow-x:auto;margin-bottom:16px">
+          <div style="overflow-x:auto;margin-bottom:6px">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#1f2328;color:#fff">
-                  <th style="padding:8px 10px;text-align:left">Trade #</th>
+                  <th style="padding:8px 10px;text-align:left">#</th>
                   <th style="padding:8px 10px;text-align:left">Entry</th>
                   <th style="padding:8px 10px;text-align:left">Exit</th>
-                  <th style="padding:8px 10px;text-align:left">Capital invested</th>
+                  <th style="padding:8px 10px;text-align:left">Top 5 picks (by 12M momentum at entry)</th>
                   <th style="padding:8px 10px;text-align:left">Portfolio return</th>
+                  <th style="padding:8px 10px;text-align:left">S&amp;P 500 same window</th>
                   <th style="padding:8px 10px;text-align:left">Capital after exit</th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Apr 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,000</strong> (starting capital)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +9.6%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong></td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Apr 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jul 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +3.6%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong></td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jul 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Oct 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#e11d48">e.g. −1.2%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong></td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Oct 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan 2022</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +5.1%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,791</strong></td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px" colspan="5" style="padding:7px 10px;font-style:italic;color:#57606a">… continues every 3 months through Dec 2025 (20 trades total) …</td></tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4 Jan 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Apr 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Tickers A, B, C, D, E — highest 12M momentum on 4 Jan 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +9.6%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +5.8%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong></td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Apr 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Jul 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Re-ranked on 1 Apr 2021 — likely different 5 tickers</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +3.6%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +8.5%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong></td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Jul 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Oct 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Re-ranked on 1 Jul 2021</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#e11d48">e.g. −1.2%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +0.2%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong></td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5" colspan="6" style="font-style:italic;color:#57606a;padding:7px 10px">… continues every 3 months through 2025 (20 trades total) …</td>
+                </tr>
               </tbody>
             </table>
           </div>
-          <p style="margin:0 0 14px;font-size:12px;color:#57606a">
-            The S&amp;P 500 column shows what the same $10,000 would look like if invested in ^GSPC on
-            Jan 1 2021 and held continuously — no trades, no rebalancing.
+          <p style="margin:0 0 16px;font-size:11px;color:#57606a">
+            Every new trade re-ranks the universe from scratch using momentum only up to that exact entry date.
+            Capital always equals 100% of the previous exit value — no cash held between trades.
           </p>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">How are Wins / Picks counted?</p>
-          <p style="margin:0 0 6px">
-            For each trade, every individual stock's return is compared to the S&amp;P 500's return
-            over the <em>exact same entry–exit window</em>.
-            A stock counts as a <strong>Win</strong> if its return was higher than the S&amp;P 500's
-            return in that period — <em>not just if it went up in absolute terms.</em>
-          </p>
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;
-                      font-size:12px;margin-bottom:14px">
-            <strong>Example — Trade 1 (Jan→Apr 2021), S&amp;P 500 returned +1.98%:</strong><br><br>
-            ADAM &nbsp;+15.2% &nbsp;✅ Win &nbsp;|&nbsp;
-            NAVI &nbsp;+8.4% &nbsp;✅ Win &nbsp;|&nbsp;
-            APA &nbsp;+22.1% &nbsp;✅ Win &nbsp;|&nbsp;
-            ISP.MI &nbsp;−2.3% &nbsp;❌ Loss &nbsp;|&nbsp;
-            LRN &nbsp;+3.8% &nbsp;✅ Win
-            <br><br>
-            <strong>Result: 4/5 wins</strong> — 4 stocks beat the S&amp;P 500 that quarter.
-            ISP.MI lost money in absolute terms so it also lost vs the index.
+          <!-- ── 5. Metrics defined ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Metrics — exact definitions</p>
+          <div style="overflow-x:auto;margin-bottom:16px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:#f0f2f5">
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;width:22%">Metric</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">How it is calculated</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>CAGR</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Compound annual growth of the $10,000 equity curve.
+                    Formula: <code>(final_capital / 10000) ^ (1 / n_years) − 1</code>, where
+                    <em>n_years = n_trades × holding_months / 12</em>.
+                  </td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>vs S&amp;P 500</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    CAGR of the portfolio minus CAGR of the S&amp;P 500 computed over the same
+                    non-overlapping trade windows. A positive number means the strategy outperformed.
+                  </td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>Sharpe ratio</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Mean per-trade return divided by the standard deviation of per-trade returns,
+                    then annualised: <code>sharpe = (avg_return / std_return) × √(trades_per_year)</code>.
+                    Higher = better risk-adjusted return. No risk-free rate subtracted (conservative).
+                  </td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>Max drawdown</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Largest peak-to-trough drop in the compounded equity curve across all trades.
+                    Shown as a negative percentage. E.g. −25% means at worst the portfolio fell
+                    25% from its peak before recovering.
+                  </td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px"><strong>Win rate</strong></td>
+                  <td style="padding:7px 10px">
+                    % of individual stock picks (across all trades) whose return in that exact
+                    entry–exit window exceeded the S&amp;P 500's return over the same window.
+                    50% = matched the index on average. Above 50% = more picks beat the market
+                    than lost to it.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">Holding period tabs — what changes</p>
-          <div style="overflow-x:auto;margin-bottom:14px">
+          <!-- ── 6. Holding period tabs ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Holding period tabs — what changes</p>
+          <div style="overflow-x:auto;margin-bottom:16px">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#f0f2f5">
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Tab</th>
-                  <th style="padding:7px 10px;text-align:left;font-weight:700">Hold duration</th>
-                  <th style="padding:7px 10px;text-align:left;font-weight:700">Trades / year</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Hold</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Trades/yr</th>
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Total trades (5 yrs)</th>
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Entry months</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Notes</th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>1M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">12</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">60</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Feb, Mar, Apr… every month</td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>3M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">20</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Apr, Jul, Oct</td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>6M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">6 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">10</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Jul</td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px"><strong>1Y</strong></td><td style="padding:7px 10px">12 months</td><td style="padding:7px 10px">1</td><td style="padding:7px 10px">5</td><td style="padding:7px 10px">Jan only</td></tr>
+                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>1M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">12</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~60</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Every month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Most trades; highest churn; most sensitive to short-term noise</td></tr>
+                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>3M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~20</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Apr, Jul, Oct</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Default view; quarterly rebalance; aligns with earnings cycles</td></tr>
+                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>6M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">6 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~10</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Jul</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Semi-annual; fewer data points; less transaction friction</td></tr>
+                <tr style="background:#f7f8fa"><td style="padding:7px 10px"><strong>1Y</strong></td><td style="padding:7px 10px">12 months</td><td style="padding:7px 10px">1</td><td style="padding:7px 10px">5</td><td style="padding:7px 10px">Jan only</td><td style="padding:7px 10px;color:#57606a;font-size:11px">Annual; only 5 trades total — very low statistical significance</td></tr>
               </tbody>
             </table>
           </div>
-          <p style="margin:0;font-size:12px;color:#57606a">
-            Trades never overlap — the next entry starts only after the previous exit.
-            All capital (profit + principal) is reinvested each time.
-          </p>
 
-          <p style="margin:14px 0 8px;font-weight:700;color:#d97706">⚠ Remaining look-ahead bias</p>
-          <p style="margin:0;font-size:12px;color:#57606a">
-            The <strong>candidate universe</strong> (which stocks are even considered) is based on
-            today's screener rankings. A company that scores highly today may have had poor
-            fundamentals in 2021 — but it's still in the pool. The <em>within-simulation ranking</em>
-            (which of those candidates to buy at each date) is clean — based on historical momentum
-            only. Think of it as: <em>"the screener tells us the right stocks to watch; momentum
-            tells us when to buy them."</em> Results are likely <em>somewhat optimistic</em> due to
-            the biased candidate pool, but far more realistic than a fixed static ranking.
-            Also: survivorship bias (only currently-listed companies), no transaction costs, no slippage.
-          </p>
+          <!-- ── 7. Biases and limitations ── -->
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:0">
+            <p style="margin:0 0 8px;font-weight:700;color:#92400e;font-size:13px">
+              ⚠ Biases &amp; limitations — read before drawing conclusions
+            </p>
+            <ul style="margin:0;padding-left:18px;font-size:12px;color:#78350f;line-height:1.8">
+              <li>
+                <strong>Look-ahead bias (candidate pool):</strong> the 40 stocks in the universe are
+                today's screener picks. A company scoring highly <em>now</em> may have had weak
+                fundamentals in 2021, but it's still included in every historical trade.
+                This makes results <em>optimistic</em>. The within-simulation ranking (momentum) is
+                clean — it uses only historical prices available at each entry date.
+              </li>
+              <li>
+                <strong>Survivorship bias:</strong> only companies that are still listed and
+                accessible through Yahoo Finance today are included. Companies that went bankrupt,
+                were delisted, or were acquired since 2021 are absent. Real performance would
+                include some of those losses.
+              </li>
+              <li>
+                <strong>No transaction costs:</strong> no commissions, bid-ask spreads, market
+                impact, or taxes are modelled. Real returns would be lower, especially for 1M
+                (12 trades/year) which involves the most trading.
+              </li>
+              <li>
+                <strong>Equal weighting:</strong> $2,000 per stock regardless of liquidity or
+                position sizing logic. In practice you might weight differently.
+              </li>
+              <li>
+                <strong>Small sample (especially 1Y tab):</strong> 5 annual trades is not
+                statistically meaningful. Even random stock picks could outperform over 5 years
+                by chance. Do not treat the 1Y results as proof of anything.
+              </li>
+              <li>
+                <strong>Interpretation:</strong> treat this as a <em>directional plausibility check</em>
+                — does this screener tend to identify companies that do better than average? — not
+                as a reliable forecast of future returns.
+              </li>
+            </ul>
+          </div>
 
         </div>
       </details>
@@ -90251,7 +90382,7 @@ function toggleWhy(id) {
   <div class="footer">
     <p>Generated by <strong>Stock Screener &amp; Intrinsic Value Engine v2</strong>
       &nbsp;·&nbsp; Python 3.11+ &nbsp;·&nbsp; yfinance &nbsp;·&nbsp; DuckDB &nbsp;·&nbsp; 100% local execution</p>
-    <p style="margin-top:6px">Report generated: 24 August 2026, 11:49</p>
+    <p style="margin-top:6px">Report generated: 24 August 2026, 11:58</p>
     <p style="margin-top:6px;color:#c0c4cb">For informational and educational purposes only. Not financial advice.</p>
     <p style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">Made with IBM Bob</p>
   </div>
