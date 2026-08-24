@@ -1913,201 +1913,591 @@ def _build_magic_formula_section(rows: list[dict], run_ts: str) -> str:
     </details>"""
 
 
-# ── Backtest section ──────────────────────────────────────────────────────────
+# ── Backtest simulation engine ────────────────────────────────────────────────
 
-def _build_backtest_section(rows: list[dict], run_ts: str) -> str:
-    # Split data rows from SUMMARY row
-    data_rows   = [r for r in rows if r.get("Year","").upper() != "SUMMARY"]
-    summary_row = next((r for r in rows if r.get("Year","").upper() == "SUMMARY"), {})
+def _fetch_bt_prices(tickers: list[str]) -> dict[str, dict[str, float]]:
+    """
+    Fetch ~5.5 years of daily adjusted closes (Jan 2020 – today) for backtest.
+    Returns {ticker: {date_str: close_price}} using DuckDB ohlcv_cache.
+    Falls back to yfinance if not cached.
+    """
+    try:
+        import duckdb
+        import yfinance as yf
+    except ImportError:
+        return {}
 
-    cagr_port = _fv(summary_row.get("Portfolio%","")) or 0.0
-    cagr_bm   = _fv(summary_row.get("Benchmark%","")) or 0.0
-    excess    = cagr_port - cagr_bm
-    win_rate  = _fv(summary_row.get("WinRate%","")) or 0.0
-    total_pk  = summary_row.get("Picks","—")
-    sharpe    = "—"
-    sortino   = "—"
-    maxdd     = "—"
-    extra_txt = summary_row.get("SelectedTickers","")
-    for part in extra_txt.split():
-        if part.startswith("Sharpe="):   sharpe  = part.split("=",1)[1]
-        if part.startswith("Sortino="):  sortino = part.split("=",1)[1]
-        if part.startswith("MaxDD="):    maxdd   = part.split("=",1)[1]
+    _ensure_ohlcv_table()
+    con    = duckdb.connect(str(DB_PATH))
+    result: dict[str, dict[str, float]] = {}
+    # For backtest we need data from 2020-01-01 onwards
+    bt_start = "2020-01-01"
 
-    # year range
-    years = [r.get("Year","") for r in data_rows]
-    start_yr = years[0] if years else "—"
-    end_yr   = years[-1] if years else "—"
+    for tkr in tickers:
+        # Check cache: do we have at least 1000 rows (≈4 years of trading days)?
+        cached = con.execute("""
+            SELECT date, close FROM ohlcv_cache
+            WHERE ticker = ? AND date >= ?
+            ORDER BY date ASC
+        """, [tkr, bt_start]).fetchall()
 
-    cagr_colour   = _return_colour(cagr_port)
-    excess_colour = _return_colour(excess)
+        if len(cached) >= 800:
+            result[tkr] = {r[0]: r[1] for r in cached if r[1] is not None}
+            continue
 
-    # ── KPI bar ──────────────────────────────────────────────────────────────
-    sign_port = "+" if cagr_port >= 0 else ""
-    sign_bm   = "+" if cagr_bm   >= 0 else ""
-    sign_exc  = "+" if excess     >= 0 else ""
+        # Fetch full 5-year history from yfinance
+        try:
+            time.sleep(0.25)
+            hist = yf.Ticker(tkr).history(start="2020-01-01", interval="1d", auto_adjust=True)
+            if hist.empty:
+                continue
+            rows = []
+            now_ts = datetime.now(UTC).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+            for dt, row in hist.iterrows():
+                date_str = str(dt)[:10]
+                close_v  = float(row["Close"]) if row["Close"] == row["Close"] else None
+                open_v   = float(row["Open"])  if row["Open"]  == row["Open"]  else None
+                high_v   = float(row["High"])  if row["High"]  == row["High"]  else None
+                low_v    = float(row["Low"])   if row["Low"]   == row["Low"]   else None
+                vol_v    = int(row["Volume"])  if row["Volume"] == row["Volume"] else None
+                rows.append((date_str, open_v, high_v, low_v, close_v, vol_v))
+            # Upsert into cache (keep existing rows for other periods too)
+            for r in rows:
+                try:
+                    con.execute("""
+                        INSERT INTO ohlcv_cache
+                            (ticker, date, open, high, low, close, volume, fetched_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (ticker, date) DO UPDATE SET
+                            close = excluded.close,
+                            fetched_at = excluded.fetched_at
+                    """, [tkr, r[0], r[1], r[2], r[3], r[4], r[5], now_ts])
+                except Exception:
+                    pass
+            result[tkr] = {r[0]: r[4] for r in rows if r[4] is not None}
+        except Exception as exc:
+            print(f"  [bt-price] {tkr}: {exc}")
 
-    kpis = f"""
+    con.close()
+    return result
+
+
+def _price_on_or_after(prices: dict[str, float], target_date: str) -> float | None:
+    """Return the close price on target_date or the next available trading day."""
+    for i in range(10):
+        # add i days to target_date
+        from datetime import date as _date
+        y, m, d = int(target_date[:4]), int(target_date[5:7]), int(target_date[8:10])
+        import calendar as _cal
+        td = _date(y, m, d)
+        from datetime import timedelta as _td
+        nd = td + _td(days=i)
+        ds = nd.strftime("%Y-%m-%d")
+        if ds in prices:
+            return prices[ds]
+    return None
+
+
+def _month_end(year: int, month: int) -> str:
+    """Return last calendar day of given month as YYYY-MM-DD."""
+    import calendar
+    last = calendar.monthrange(year, month)[1]
+    return f"{year:04d}-{month:02d}-{last:02d}"
+
+
+def _add_months(year: int, month: int, n: int) -> tuple[int, int]:
+    """Add n months to (year, month), return (new_year, new_month)."""
+    month += n
+    year  += (month - 1) // 12
+    month  = (month - 1) % 12 + 1
+    return year, month
+
+
+def _run_monthly_backtest(
+    tickers: list[str],                      # ranked list — top N used each month
+    prices:  dict[str, dict[str, float]],    # {ticker: {date: close}}
+    spx:     dict[str, float],               # {date: spx_close}
+    holding_months: int,                     # 1, 3, 6, or 12
+    top_n:   int = 5,
+    start_year: int = 2021,
+    end_year:   int = 2025,
+) -> dict:
+    """
+    Monthly walk-forward simulation.
+
+    Every month from Jan-{start_year} to Dec-{end_year}:
+      - Pick the top-N tickers from the ranked list that have price data
+      - Buy at start-of-month close, sell at close after holding_months months
+      - Equal-weight, no transaction costs
+      - Compare to S&P 500 over the same window
+
+    Returns a dict with monthly results, yearly aggregates, and summary stats.
+    """
+    monthly_results = []
+
+    # Generate all (year, month) pairs for the simulation window
+    periods = []
+    for y in range(start_year, end_year + 1):
+        for mo in range(1, 13):
+            periods.append((y, mo))
+
+    # Remove periods where exit would be beyond end_year+1 (incomplete data)
+    cutoff_year, cutoff_month = _add_months(end_year, 12, holding_months)
+
+    for year, month in periods:
+        exit_year, exit_month = _add_months(year, month, holding_months)
+        # Skip if exit is too far in the future
+        if (exit_year, exit_month) > (cutoff_year, cutoff_month):
+            continue
+
+        # Entry: first trading day of this month
+        entry_date = f"{year:04d}-{month:02d}-01"
+        # Exit: first trading day of exit month
+        exit_date  = f"{exit_year:04d}-{exit_month:02d}-01"
+
+        # Pick top-N tickers that have both entry and exit prices
+        picks = []
+        for tkr in tickers:
+            tp = prices.get(tkr, {})
+            ep = _price_on_or_after(tp, entry_date)
+            xp = _price_on_or_after(tp, exit_date)
+            if ep and xp and ep > 0:
+                picks.append((tkr, ep, xp))
+            if len(picks) >= top_n:
+                break
+
+        if not picks:
+            continue
+
+        # Portfolio return = equal-weight average of individual returns
+        returns = [(xp / ep - 1.0) * 100.0 for _, ep, xp in picks]
+        port_ret = sum(returns) / len(returns)
+
+        # Benchmark (SPX) return over same window
+        spx_ep = _price_on_or_after(spx, entry_date)
+        spx_xp = _price_on_or_after(spx, exit_date)
+        if spx_ep and spx_xp and spx_ep > 0:
+            bm_ret = (spx_xp / spx_ep - 1.0) * 100.0
+        else:
+            bm_ret = None
+
+        excess = port_ret - bm_ret if bm_ret is not None else None
+        wins   = sum(1 for r in returns if r > (bm_ret or 0))
+
+        monthly_results.append({
+            "year":    year,
+            "month":   month,
+            "period":  f"{year:04d}-{month:02d}",
+            "entry":   entry_date,
+            "exit":    exit_date,
+            "tickers": [t for t, _, _ in picks],
+            "returns": returns,
+            "port":    port_ret,
+            "bm":      bm_ret,
+            "excess":  excess,
+            "wins":    wins,
+            "n_picks": len(picks),
+        })
+
+    if not monthly_results:
+        return {"monthly": [], "yearly": {}, "summary": {}}
+
+    # Aggregate by year
+    yearly: dict[int, dict] = {}
+    for r in monthly_results:
+        y = r["year"]
+        if y not in yearly:
+            yearly[y] = {"port_rets": [], "bm_rets": [], "picks": 0, "wins": 0}
+        yearly[y]["port_rets"].append(r["port"])
+        if r["bm"] is not None:
+            yearly[y]["bm_rets"].append(r["bm"])
+        yearly[y]["picks"] += r["n_picks"]
+        yearly[y]["wins"]  += r["wins"]
+
+    yearly_rows = []
+    for y in sorted(yearly.keys()):
+        d = yearly[y]
+        # Compound the monthly returns into an annual return
+        port_annual = 1.0
+        for mr in d["port_rets"]:
+            port_annual *= (1.0 + mr / 100.0)
+        port_annual = (port_annual - 1.0) * 100.0
+
+        if d["bm_rets"]:
+            bm_annual = 1.0
+            for mr in d["bm_rets"]:
+                bm_annual *= (1.0 + mr / 100.0)
+            bm_annual = (bm_annual - 1.0) * 100.0
+        else:
+            bm_annual = None
+
+        exc = port_annual - bm_annual if bm_annual is not None else None
+        total_p = d["picks"]
+        wr = (d["wins"] / total_p * 100.0) if total_p else 0.0
+
+        yearly_rows.append({
+            "year":    y,
+            "port":    port_annual,
+            "bm":      bm_annual,
+            "excess":  exc,
+            "picks":   total_p,
+            "wins":    d["wins"],
+            "win_rate": wr,
+        })
+
+    # Summary stats over the full period
+    all_port_monthly = [r["port"] / 100.0 for r in monthly_results]
+    # CAGR via compounded monthly returns
+    compound = 1.0
+    for mr in all_port_monthly:
+        compound *= (1.0 + mr)
+    n_months = len(all_port_monthly)
+    n_years  = n_months / 12.0
+    cagr_port = (compound ** (1.0 / n_years) - 1.0) * 100.0 if n_years > 0 else 0.0
+
+    # Benchmark CAGR
+    bm_monthly = [r["bm"] / 100.0 for r in monthly_results if r["bm"] is not None]
+    if bm_monthly:
+        compound_bm = 1.0
+        for mr in bm_monthly:
+            compound_bm *= (1.0 + mr)
+        n_bm = len(bm_monthly) / 12.0
+        cagr_bm = (compound_bm ** (1.0 / n_bm) - 1.0) * 100.0 if n_bm > 0 else 0.0
+    else:
+        cagr_bm = 0.0
+
+    # Sharpe (annualised, rf=0)
+    if len(all_port_monthly) > 1:
+        avg_m  = sum(all_port_monthly) / len(all_port_monthly)
+        std_m  = math.sqrt(sum((x - avg_m)**2 for x in all_port_monthly) / (len(all_port_monthly) - 1))
+        sharpe = round((avg_m / std_m) * math.sqrt(12), 2) if std_m > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    # Max drawdown (on compounded equity curve)
+    equity = [1.0]
+    for mr in all_port_monthly:
+        equity.append(equity[-1] * (1.0 + mr))
+    peak, maxdd = equity[0], 0.0
+    for v in equity:
+        peak = max(peak, v)
+        maxdd = max(maxdd, (peak - v) / peak * 100.0)
+
+    total_picks = sum(r["n_picks"] for r in monthly_results)
+    total_wins  = sum(r["wins"]    for r in monthly_results)
+    win_rate    = total_wins / total_picks * 100.0 if total_picks else 0.0
+
+    return {
+        "monthly":  monthly_results,
+        "yearly":   yearly_rows,
+        "summary":  {
+            "cagr_port": round(cagr_port, 2),
+            "cagr_bm":   round(cagr_bm,   2),
+            "excess":    round(cagr_port - cagr_bm, 2),
+            "sharpe":    sharpe,
+            "maxdd":     round(-maxdd, 2),
+            "win_rate":  round(win_rate, 1),
+            "n_months":  n_months,
+            "n_picks":   total_picks,
+        },
+    }
+
+
+def _bt_kpi_bar(s: dict) -> str:
+    """Render the KPI summary bar for a single backtest result dict."""
+    cp  = s.get("cagr_port", 0.0)
+    cb  = s.get("cagr_bm",   0.0)
+    exc = s.get("excess",    0.0)
+    sh  = s.get("sharpe",    0.0)
+    dd  = s.get("maxdd",     0.0)
+    wr  = s.get("win_rate",  0.0)
+    cc  = _return_colour(cp)
+    ec  = _return_colour(exc)
+    sp  = "+" if cp  >= 0 else ""
+    se  = "+" if exc >= 0 else ""
+    sb  = "+" if cb  >= 0 else ""
+    return f"""
     <div class="bt-header">
       <div class="bt-kpi">
-        <div class="kv" style="color:{cagr_colour}">{sign_port}{cagr_port:.2f}%</div>
+        <div class="kv" style="color:{cc}">{sp}{cp:.2f}%</div>
         <div class="kl">Portfolio CAGR</div>
       </div>
       <div class="bt-kpi">
-        <div class="kv" style="color:#57606a">{sign_bm}{cagr_bm:.2f}%</div>
-        <div class="kl">S&amp;P 500 CAGR (Benchmark)</div>
+        <div class="kv" style="color:#57606a">{sb}{cb:.2f}%</div>
+        <div class="kl">S&amp;P 500 CAGR</div>
       </div>
       <div class="bt-kpi">
-        <div class="kv" style="color:{excess_colour}">{sign_exc}{excess:.2f}%</div>
-        <div class="kl">Excess Return vs S&amp;P 500</div>
+        <div class="kv" style="color:{ec}">{se}{exc:.2f}%</div>
+        <div class="kl">Excess vs S&amp;P 500</div>
       </div>
       <div class="bt-kpi">
-        <div class="kv">{sharpe}</div>
-        <div class="kl">Sharpe Ratio</div>
+        <div class="kv">{sh:.2f}</div>
+        <div class="kl">Sharpe Ratio (ann.)</div>
       </div>
       <div class="bt-kpi">
-        <div class="kv">{sortino}</div>
-        <div class="kl">Sortino Ratio</div>
-      </div>
-      <div class="bt-kpi">
-        <div class="kv" style="color:#e11d48">{maxdd}</div>
+        <div class="kv" style="color:#e11d48">{dd:.1f}%</div>
         <div class="kl">Max Drawdown</div>
       </div>
       <div class="bt-kpi">
-        <div class="kv">{win_rate:.0f}%</div>
-        <div class="kl">Stock Win Rate</div>
+        <div class="kv">{wr:.0f}%</div>
+        <div class="kl">Trade Win Rate</div>
       </div>
     </div>"""
 
-    # ── Visual bar chart — Portfolio vs S&P 500 per year ─────────────────────
-    # Find the max absolute return to scale bars
+
+def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
+    """Render the horizontal dual-bar chart for yearly returns."""
     all_vals = []
-    for r in data_rows:
-        pv = _fv(r.get("Portfolio%",""))
-        bv = _fv(r.get("Benchmark%",""))
-        if pv is not None: all_vals.append(abs(pv))
-        if bv is not None: all_vals.append(abs(bv))
+    for r in yearly_rows:
+        if r["port"] is not None: all_vals.append(abs(r["port"]))
+        if r["bm"]   is not None: all_vals.append(abs(r["bm"]))
     max_abs = max(all_vals) if all_vals else 30.0
-    scale   = 100.0 / (max_abs * 2 + 4)   # 50% of track width = max_abs %
+    scale   = 50.0 / (max_abs + 2.0)     # 50% of track width = max_abs %
 
-    chart_html = '<div class="chart-wrap">'
-    chart_html += f"""
-    <div style="display:flex;gap:18px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+    def _bar(val: float | None, colour: str) -> str:
+        if val is None:
+            return '<div style="height:22px;background:#f0f2f5;border-radius:4px"></div>'
+        pct_w = min(abs(val) * scale, 50.0)
+        lbl   = f'{"+" if val >= 0 else ""}{val:.1f}%'
+        if val >= 0:
+            return (
+                f'<div style="position:relative;height:22px;background:#f0f2f5;border-radius:4px;overflow:hidden">'
+                f'<div style="position:absolute;left:50%;top:0;width:{pct_w:.2f}%;height:100%;'
+                f'background:{colour};border-radius:0 4px 4px 0;display:flex;align-items:center;'
+                f'padding-left:4px"><span style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap">{lbl}</span></div>'
+                f'<div style="position:absolute;left:50%;top:0;height:100%;border-left:2px solid #9ca3af"></div>'
+                f'</div>'
+            )
+        else:
+            return (
+                f'<div style="position:relative;height:22px;background:#f0f2f5;border-radius:4px;overflow:hidden">'
+                f'<div style="position:absolute;right:50%;top:0;width:{pct_w:.2f}%;height:100%;'
+                f'background:{colour};border-radius:4px 0 0 4px;display:flex;align-items:center;'
+                f'justify-content:flex-end;padding-right:4px"><span style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap">{lbl}</span></div>'
+                f'<div style="position:absolute;left:50%;top:0;height:100%;border-left:2px solid #9ca3af"></div>'
+                f'</div>'
+            )
+
+    html = '<div class="chart-wrap">'
+    html += f"""
+    <div style="display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:14px;height:14px;background:#3b82d4;border-radius:3px"></div>
-        <span style="font-size:12px;font-weight:600;color:#374151">Portfolio (Deep Value picks)</span>
+        <div style="width:12px;height:12px;background:#3b82d4;border-radius:2px"></div>
+        <span style="font-size:11px;font-weight:600;color:#374151">{portfolio_label}</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:14px;height:14px;background:#9ca3af;border-radius:3px"></div>
-        <span style="font-size:12px;font-weight:600;color:#374151">S&amp;P 500 Benchmark (^GSPC)</span>
+        <div style="width:12px;height:12px;background:#9ca3af;border-radius:2px"></div>
+        <span style="font-size:11px;font-weight:600;color:#374151">S&amp;P 500</span>
       </div>
-      <div style="font-size:11px;color:#8d96a0;margin-left:auto">Zero line at centre — bars extend left (negative) or right (positive)</div>
+      <div style="font-size:10px;color:#8d96a0;margin-left:auto">Centre = 0% &nbsp;|&nbsp; right = gain &nbsp;|&nbsp; left = loss</div>
     </div>"""
 
-    for r in data_rows:
-        yr   = r.get("Year","")
-        pv   = _fv(r.get("Portfolio%",""))
-        bv   = _fv(r.get("Benchmark%",""))
-        ev   = _fv(r.get("Excess%",""))
-        pkn  = r.get("Picks","—")
-        wn   = r.get("WinningPicks","—")
-        sign_pv = "+" if (pv or 0) >= 0 else ""
-        sign_bv = "+" if (bv or 0) >= 0 else ""
-        sign_ev = "+" if (ev or 0) >= 0 else ""
-        exc_cls = "excess-pos" if (ev or 0) >= 0 else "excess-neg"
-        p_colour = _return_colour(pv or 0)
-        b_colour = "#9ca3af"
-
-        def _bar(val: float | None, colour: str) -> str:
-            if val is None:
-                return '<div style="height:22px;background:#f0f2f5;border-radius:4px;display:flex;align-items:center;padding:0 8px"><span style="font-size:11px;color:#8d96a0">—</span></div>'
-            pct_w = min(abs(val) * scale * 100, 50)
-            sign_str = "+" if val >= 0 else ""
-            if val >= 0:
-                return (
-                    f'<div style="position:relative;height:22px;background:#f0f2f5;border-radius:4px">'
-                    f'<div style="position:absolute;left:50%;top:0;width:{pct_w:.2f}%;height:100%;'
-                    f'background:{colour};border-radius:0 4px 4px 0;display:flex;align-items:center;'
-                    f'padding-left:6px"><span style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap">{sign_str}{val:.1f}%</span></div>'
-                    f'<div style="position:absolute;left:50%;top:0;height:100%;border-left:2px solid #9ca3af"></div>'
-                    f'</div>'
-                )
-            else:
-                return (
-                    f'<div style="position:relative;height:22px;background:#f0f2f5;border-radius:4px">'
-                    f'<div style="position:absolute;right:50%;top:0;width:{pct_w:.2f}%;height:100%;'
-                    f'background:{colour};border-radius:4px 0 0 4px;display:flex;align-items:center;'
-                    f'justify-content:flex-end;padding-right:6px"><span style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap">{val:.1f}%</span></div>'
-                    f'<div style="position:absolute;left:50%;top:0;height:100%;border-left:2px solid #9ca3af"></div>'
-                    f'</div>'
-                )
-
-        chart_html += f"""
-        <div style="display:flex;align-items:stretch;gap:12px;margin-bottom:14px;
-                    background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px">
-          <div style="width:40px;flex-shrink:0;display:flex;align-items:center;
-                      justify-content:center;font-size:15px;font-weight:800;color:#1f2328">{yr}</div>
-          <div style="flex:1;display:flex;flex-direction:column;gap:5px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="width:80px;font-size:11px;color:#374151;font-weight:600;flex-shrink:0">Portfolio</span>
-              <div style="flex:1">{_bar(pv, p_colour)}</div>
+    for r in yearly_rows:
+        yr  = r["year"]
+        pv  = r["port"]
+        bv  = r["bm"]
+        ev  = r["excess"]
+        exc_c = "excess-pos" if (ev or 0) >= 0 else "excess-neg"
+        html += f"""
+        <div style="display:flex;align-items:stretch;gap:10px;margin-bottom:10px;
+                    background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">
+          <div style="width:38px;flex-shrink:0;display:flex;align-items:center;
+                      justify-content:center;font-size:14px;font-weight:800;color:#1f2328">{yr}</div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="width:72px;font-size:10px;color:#374151;font-weight:600;flex-shrink:0">Portfolio</span>
+              <div style="flex:1">{_bar(pv, _return_colour(pv or 0))}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="width:80px;font-size:11px;color:#374151;font-weight:600;flex-shrink:0">S&amp;P 500</span>
-              <div style="flex:1">{_bar(bv, b_colour)}</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="width:72px;font-size:10px;color:#374151;font-weight:600;flex-shrink:0">S&amp;P 500</span>
+              <div style="flex:1">{_bar(bv, "#9ca3af")}</div>
             </div>
           </div>
-          <div style="width:120px;flex-shrink:0;display:flex;flex-direction:column;
-                      align-items:flex-end;justify-content:center;gap:2px">
-            <div style="font-size:11px;color:#8d96a0">Excess Return</div>
-            <div class="{exc_cls}" style="font-size:16px">{sign_ev}{(ev or 0):.1f}%</div>
-            <div style="font-size:11px;color:#8d96a0">{wn}/{pkn} picks beat SPX</div>
+          <div style="width:100px;flex-shrink:0;display:flex;flex-direction:column;
+                      align-items:flex-end;justify-content:center;gap:1px">
+            <div style="font-size:10px;color:#8d96a0">Excess</div>
+            <div class="{exc_c}" style="font-size:15px">{"+" if (ev or 0) >= 0 else ""}{(ev or 0):.1f}%</div>
           </div>
         </div>"""
 
-    chart_html += "</div>"
+    html += "</div>"
+    return html
 
-    # ── Detailed table ────────────────────────────────────────────────────────
-    tbl_rows = ""
-    for r in data_rows:
-        yr   = r.get("Year","")
-        pv   = _fv(r.get("Portfolio%",""))
-        bv   = _fv(r.get("Benchmark%",""))
-        ev   = _fv(r.get("Excess%",""))
-        pkn  = r.get("Picks","—")
-        wn   = r.get("WinningPicks","—")
-        wr   = _fv(r.get("WinRate%",""))
-        tkrs = r.get("SelectedTickers","").replace("|", " · ")
-        p_col = _return_colour(pv or 0)
-        b_col = _return_colour(bv or 0)
-        exc_cls = "excess-pos" if (ev or 0) >= 0 else "excess-neg"
-        sign_pv = "+" if (pv or 0) >= 0 else ""
-        sign_bv = "+" if (bv or 0) >= 0 else ""
-        sign_ev = "+" if (ev or 0) >= 0 else ""
-        tbl_rows += f"""<tr>
-          <td style="font-weight:800;font-size:15px">{yr}</td>
-          <td class="r" style="color:{p_col};font-weight:700">{sign_pv}{(pv or 0):.2f}%</td>
-          <td class="r" style="color:{b_col};font-weight:700">{sign_bv}{(bv or 0):.2f}%</td>
-          <td class="r"><span class="{exc_cls}">{sign_ev}{(ev or 0):.2f}%</span></td>
-          <td class="r">{wn}/{pkn}</td>
-          <td class="r">{(wr or 0):.0f}%</td>
-          <td style="font-size:12px;color:#57606a">{tkrs}</td>
+
+def _bt_monthly_detail(monthly: list[dict]) -> str:
+    """Collapsible monthly detail table."""
+    rows_html = ""
+    for r in monthly:
+        port_c = _return_colour(r["port"])
+        bm_c   = "#9ca3af"
+        exc_c  = "excess-pos" if (r["excess"] or 0) >= 0 else "excess-neg"
+        sp     = "+" if r["port"] >= 0 else ""
+        sb     = "+" if (r["bm"] or 0) >= 0 else ""
+        se     = "+" if (r["excess"] or 0) >= 0 else ""
+        tkrs   = " · ".join(r["tickers"])
+        rows_html += f"""<tr>
+          <td style="font-weight:700;white-space:nowrap">{r["period"]}</td>
+          <td class="r" style="color:{port_c};font-weight:700">{sp}{r["port"]:.2f}%</td>
+          <td class="r" style="color:{bm_c}">{sb}{(r["bm"] or 0):.2f}%</td>
+          <td class="r"><span class="{exc_c}">{se}{(r["excess"] or 0):.2f}%</span></td>
+          <td class="r">{r["wins"]}/{r["n_picks"]}</td>
+          <td style="font-size:11px;color:#57606a">{tkrs}</td>
         </tr>"""
 
-    # Summary row
-    sp_port = "+" if cagr_port >= 0 else ""
-    sp_bm   = "+" if cagr_bm   >= 0 else ""
-    sp_exc  = "+" if excess     >= 0 else ""
-    exc_cls_s = "excess-pos" if excess >= 0 else "excess-neg"
-    tbl_rows += f"""<tr style="background:#f7f8fa;font-weight:800">
-      <td>CAGR</td>
-      <td class="r" style="color:{_return_colour(cagr_port)}">{sp_port}{cagr_port:.2f}%</td>
-      <td class="r" style="color:{_return_colour(cagr_bm)}">{sp_bm}{cagr_bm:.2f}%</td>
-      <td class="r"><span class="{exc_cls_s}">{sp_exc}{excess:.2f}%</span></td>
-      <td class="r">{total_pk}</td>
-      <td class="r">{win_rate:.0f}%</td>
-      <td style="font-size:12px;color:#57606a">Sharpe {sharpe} · Sortino {sortino} · MaxDD {maxdd}</td>
-    </tr>"""
+    return f"""
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
+                      padding:6px 0;user-select:none">
+        &#9654; Show month-by-month detail ({len(monthly)} periods)
+      </summary>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="bt-tbl" style="width:100%;font-size:12px">
+          <thead><tr>
+            <th>Month</th>
+            <th class="r">Portfolio</th>
+            <th class="r">S&amp;P 500</th>
+            <th class="r">Excess</th>
+            <th class="r">Wins/Picks</th>
+            <th>Tickers</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </details>"""
+
+
+def _build_backtest_section(
+    overall_tickers:    list[str],
+    conviction_tickers: list[str],
+    prices: dict[str, dict[str, float]],
+    spx:    dict[str, float],
+) -> str:
+    """
+    Build the improved backtest section with:
+     - Two strategies: Top Overall and Top Convictions
+     - Four holding periods: 1M, 3M, 6M, 12M
+     - Monthly rebalancing (one trade per month)
+     - 2021-2025 simulation window
+    """
+    if not prices or not spx:
+        return ""
+
+    holding_configs = [
+        (1,  "1 Month",  "1M"),
+        (3,  "3 Months", "3M"),
+        (6,  "6 Months", "6M"),
+        (12, "1 Year",   "1Y"),
+    ]
+
+    strategies = [
+        ("overall",     overall_tickers,    "Top Overall", "#3b82d4"),
+        ("convictions", conviction_tickers, "Top Convictions", "#7c3aed"),
+    ]
+
+    # Run all simulations
+    results: dict[str, dict[int, dict]] = {}
+    for strat_key, tickers, _label, _colour in strategies:
+        results[strat_key] = {}
+        for hm, _hlabel, _htag in holding_configs:
+            res = _run_monthly_backtest(
+                tickers, prices, spx, holding_months=hm, top_n=5,
+                start_year=2021, end_year=2025,
+            )
+            results[strat_key][hm] = res
+
+    # ── Build the tab-based HTML ─────────────────────────────────────────────
+    # Tabs: [1M | 3M | 6M | 1Y]  ×  [Top Overall | Top Convictions]
+    # Default tab: 3M
+    tab_blocks = ""
+    for hm, hlabel, htag in holding_configs:
+        is_default = hm == 3
+        tab_blocks += f"""
+        <div class="bt-tab-panel" id="bt-panel-{htag}" style="{'display:block' if is_default else 'display:none'}">
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px">"""
+
+        for strat_key, tickers, slabel, scolour in strategies:
+            res = results[strat_key][hm]
+            s   = res.get("summary", {})
+            yr  = res.get("yearly",  [])
+            mo  = res.get("monthly", [])
+            if not s:
+                tab_blocks += f"""
+            <div style="flex:1;min-width:280px;background:#f7f8fa;border:1px solid #e5e7eb;
+                        border-radius:10px;padding:16px;opacity:0.5">
+              <div style="font-weight:700;color:{scolour};margin-bottom:8px">{slabel}</div>
+              <div style="font-size:12px;color:#9ca3af">Not enough data for this strategy.</div>
+            </div>"""
+                continue
+
+            cp  = s.get("cagr_port", 0.0)
+            cb  = s.get("cagr_bm",   0.0)
+            exc = s.get("excess",    0.0)
+            sh  = s.get("sharpe",    0.0)
+            dd  = s.get("maxdd",     0.0)
+            wr  = s.get("win_rate",  0.0)
+            nm  = s.get("n_months",  0)
+            cc  = _return_colour(cp)
+            ec  = _return_colour(exc)
+            sp  = "+" if cp  >= 0 else ""
+            se  = "+" if exc >= 0 else ""
+            sb  = "+" if cb  >= 0 else ""
+
+            yearly_chart  = _bt_yearly_chart(yr, slabel)
+            monthly_dtail = _bt_monthly_detail(mo)
+
+            tab_blocks += f"""
+            <div style="flex:1;min-width:320px;background:#fff;border:1px solid #e5e7eb;
+                        border-left:4px solid {scolour};border-radius:10px;padding:18px 20px">
+              <div style="font-size:13px;font-weight:800;color:{scolour};margin-bottom:14px;
+                          letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · top 5 picks/month · {nm} periods</span></div>
+              <!-- KPI row -->
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:{cc}">{sp}{cp:.1f}%</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
+                </div>
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:{ec}">{se}{exc:.1f}%</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">vs S&amp;P 500</div>
+                </div>
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:#57606a">{sb}{cb:.1f}%</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">S&amp;P CAGR</div>
+                </div>
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800">{sh:.2f}</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Sharpe</div>
+                </div>
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:#e11d48">{dd:.1f}%</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Max DD</div>
+                </div>
+                <div style="flex:1;min-width:90px;background:#f7f8fa;border-radius:8px;padding:10px 12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800">{wr:.0f}%</div>
+                  <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
+                </div>
+              </div>
+              <!-- Yearly chart -->
+              {yearly_chart}
+              <!-- Monthly detail collapsible -->
+              {monthly_dtail}
+            </div>"""
+
+        tab_blocks += """
+          </div>
+        </div>"""
+
+    # Tab buttons (1M / 3M / 6M / 1Y)
+    tab_btns = ""
+    for hm, hlabel, htag in holding_configs:
+        active = "background:#3b82d4;color:#fff;border-color:#3b82d4" if hm == 3 else "background:#fff;color:#374151;border-color:#e5e7eb"
+        tab_btns += (
+            f'<button class="bt-tab-btn" data-tab="{htag}" '
+            f'onclick="btSwitchTab(\'{htag}\')" '
+            f'style="padding:7px 20px;font-size:12px;font-weight:700;border:1px solid;'
+            f'border-radius:20px;cursor:pointer;{active}">'
+            f'{htag} &nbsp;<span style="font-size:10px;font-weight:400">({hlabel})</span></button>'
+        )
 
     return f"""
     <span class="section-anchor" id="backtest"></span>
@@ -2115,52 +2505,33 @@ def _build_backtest_section(rows: list[dict], run_ts: str) -> str:
       <div class="profile-badge" style="background:#1f232811;border-color:#1f232844;color:#1f2328">
         BT &nbsp; Backtest
       </div>
-      <div class="section-title">Walk-Forward Backtest — Deep Value vs S&amp;P 500</div>
+      <div class="section-title">Walk-Forward Backtest — Monthly Simulation 2021–2025</div>
       <div class="section-sub">
-        Simulated {start_yr}–{end_yr} performance of the Deep Value top picks measured against the
-        <strong>S&amp;P 500 Index (^GSPC)</strong> as benchmark. Entry/exit on the first trading day
-        of each calendar year. Equal-weighted portfolio. Run date: {run_ts}.
+        Monthly rebalancing simulation: every month, buy the <strong>top 5 tickers</strong>
+        from each strategy, hold for the selected period, exit, repeat.
+        Equal-weighted. <strong>S&amp;P 500</strong> as benchmark.
+        <span style="color:#d97706;font-weight:700">⚠ Look-ahead bias applies</span> —
+        current screener rankings used as proxy for all historical periods.
+        Treat as directional signal quality indicator only.
       </div>
 
-      {kpis}
+      <!-- Holding period tabs -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+        {tab_btns}
+      </div>
 
-      <hr class="divider">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#1f2328">
-        Annual Returns — Portfolio vs S&amp;P 500 Benchmark
-      </div>
-      <div style="font-size:12px;color:#57606a;margin-bottom:14px">
-        Each year shows the portfolio return (blue) and the S&amp;P 500 return (grey).
-        The bar extends <strong>right for gains</strong> and <strong>left for losses</strong>.
-        The centre line represents zero. Excess Return = Portfolio minus S&amp;P 500.
-      </div>
-      {chart_html}
-
-      <hr class="divider">
-      <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:#1f2328">
-        Detailed Year-by-Year Results
-      </div>
-      <table class="bt-tbl" style="width:100%;table-layout:fixed">
-        <thead><tr>
-          <th style="width:8%">Year</th>
-          <th class="r" style="width:14%">Portfolio Return</th>
-          <th class="r" style="width:14%">S&amp;P 500 Return</th>
-          <th class="r" style="width:14%">Excess vs SPX</th>
-          <th class="r" style="width:10%">Wins / Picks</th>
-          <th class="r" style="width:10%">Win Rate</th>
-          <th style="width:30%">Selected Tickers</th>
-        </tr></thead>
-        <tbody>{tbl_rows}</tbody>
-      </table>
+      {tab_blocks}
 
       <div class="limit-box">
-        <strong>Important Limitations of this Backtest:</strong><br>
-        (1) <strong>Look-ahead bias</strong> — uses current financials as screening criteria for all historical years.
+        <strong>Important Simulation Limitations:</strong><br>
+        (1) <strong>Look-ahead bias</strong> — uses <em>current</em> screener rankings for all historical periods.
         Real point-in-time data would differ; results are likely optimistic.<br>
-        (2) <strong>Survivorship bias</strong> — universe contains only current S&amp;P 500 constituents.
-        Companies removed since {start_yr} (failed, merged, delisted) are excluded.<br>
-        (3) <strong>Single-day pricing</strong> — entry/exit on one date per year, no slippage or bid-ask spread.<br>
-        (4) <strong>No transaction costs</strong> — commissions and taxes are not modelled.<br>
-        Treat results as <em>directional indicators</em> of strategy quality, not as reliable future predictions.
+        (2) <strong>Survivorship bias</strong> — tickers are from the current universe only.
+        Delisted / failed companies are excluded.<br>
+        (3) <strong>No transaction costs</strong> — commissions, taxes, slippage not modelled.<br>
+        (4) <strong>Overlapping windows</strong> — holding periods &gt;1M create correlated trades;
+        CAGR may overstate independent alpha.<br>
+        Treat results as <em>directional signal quality indicators</em>, not reliable predictions.
       </div>
     </div>"""
 
@@ -2655,15 +3026,7 @@ def build_full_report(out_path: Path) -> None:
         try: mf_ts = datetime.strptime(mf_ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
         except Exception: pass
 
-    # Backtest
-    bt_path = _most_recent("*_backtest_*.csv")
-    bt_rows: list[dict] = []
-    bt_ts = "—"
-    if bt_path:
-        bt_rows = _load_csv(bt_path)
-        bt_ts = bt_path.stem[:15]
-        try: bt_ts = datetime.strptime(bt_ts, "%Y%m%d_%H%M%S").strftime("%d %b %Y %H:%M")
-        except Exception: pass
+    # (legacy backtest CSV no longer used — simulation is built inline)
 
     # ── Dow 30 table (inline, simpler) ───────────────────────────────────────
     dow_section = ""
@@ -2729,18 +3092,60 @@ def build_full_report(out_path: Path) -> None:
           </div>
         </details>"""
 
-    bt_section_inner = _build_backtest_section(bt_rows, bt_ts) if bt_rows else ""
-    if bt_rows:
-        cagr_val = ""
-        try:
-            sr = next((r for r in bt_rows if r.get("Year","").upper()=="SUMMARY"), {})
-            cp = _fv(sr.get("Portfolio%",""))
-            cb = _fv(sr.get("Benchmark%",""))
-            if cp is not None and cb is not None:
-                sign = "+" if cp-cb >= 0 else ""
-                cagr_val = f"{'+' if cp>=0 else ''}{cp:.1f}% portfolio &nbsp;·&nbsp; {sign}{cp-cb:.1f}% vs S&P 500"
-        except Exception:
-            pass
+    # ── Overall Top (cross-profile) ───────────────────────────────────────────
+    overall_top_section = _build_overall_top(all_profile_rows, top_n=10)
+
+    # ── Top Convictions ───────────────────────────────────────────────────────
+    convictions_section = _build_convictions_section(all_profile_rows)
+
+    # ── New backtest: monthly simulation for Top Overall + Top Convictions ────
+    # Derive ranked ticker lists from the already-computed sections
+    _bt_weights = {
+        "deep_value": 1.30, "buffett_quality": 1.20,
+        "quality_value": 1.10, "dividend_growth": 1.05, "high_fcf_yield": 1.00,
+    }
+    def _overall_score(tkr: str, raw_fits: dict[str, dict[str, float]]) -> float:
+        fits  = raw_fits.get(tkr, {})
+        w_sum = sum(_bt_weights.get(k, 1.0) for k in fits)
+        w_fit = sum(fits[k] * _bt_weights.get(k, 1.0) for k in fits)
+        return round(w_fit / w_sum, 1) if w_sum > 0 else 0.0
+
+    # Rebuild ticker → profile fits map (mirrors _build_overall_top logic)
+    _bt_raw_fits: dict[str, dict[str, float]] = {}
+    _bt_passes:   dict[str, list[str]]        = {}
+    for key, rows in all_profile_rows.items():
+        for row in rows:
+            tkr = row.get("Ticker", "").strip()
+            if not tkr: continue
+            fit_v = _fv(row.get("ProfileFit", ""))
+            if fit_v is None: continue
+            if tkr not in _bt_raw_fits:
+                _bt_raw_fits[tkr] = {}
+                _bt_passes[tkr]   = []
+            _bt_raw_fits[tkr][key] = fit_v
+            is_pass = str(row.get("Passes", "")).strip().lower() in ("true", "1", "yes")
+            if is_pass and key not in _bt_passes[tkr]:
+                _bt_passes[tkr].append(key)
+
+    overall_ranked = sorted(
+        _bt_raw_fits.keys(),
+        key=lambda t: _overall_score(t, _bt_raw_fits),
+        reverse=True,
+    )
+    conviction_ranked = sorted(
+        [t for t, ps in _bt_passes.items() if len(ps) >= 2],
+        key=lambda t: (-len(_bt_passes[t]), -_overall_score(t, _bt_raw_fits)),
+    )
+
+    # Fetch historical prices for all backtest tickers + SPX
+    _bt_all_tickers = list(dict.fromkeys(overall_ranked[:40] + conviction_ranked[:40]))
+    print(f"  Fetching 5y price history for {len(_bt_all_tickers)} backtest tickers…")
+    _bt_prices = _fetch_bt_prices(_bt_all_tickers + ["^GSPC"])
+    _bt_spx    = _bt_prices.pop("^GSPC", {})
+    print(f"  Backtest prices fetched: {len(_bt_prices)} tickers, {len(_bt_spx)} SPX days.")
+
+    bt_inner = _build_backtest_section(overall_ranked, conviction_ranked, _bt_prices, _bt_spx)
+    if bt_inner:
         bt_section = f"""
         <span class="section-anchor" id="backtest"></span>
         <details class="sec-wrap">
@@ -2748,20 +3153,14 @@ def build_full_report(out_path: Path) -> None:
             <div class="sec-hdr">
               <span class="sec-arrow">&#9654;</span>
               <span class="sec-badge" style="background:#1f232818;color:#1f2328">BT</span>
-              <span class="sec-title">Backtest vs S&amp;P 500 &mdash; Walk-Forward Simulation</span>
-              <span class="sec-meta">{cagr_val} &nbsp;·&nbsp; {bt_ts}</span>
+              <span class="sec-title">Backtest vs S&amp;P 500 &mdash; Monthly Simulation 2021–2025</span>
+              <span class="sec-meta">Top Overall &amp; Top Convictions · 1M / 3M / 6M / 1Y hold</span>
             </div>
           </summary>
-          <div class="sec-body">{bt_section_inner}</div>
+          <div class="sec-body">{bt_inner}</div>
         </details>"""
     else:
         bt_section = ""
-
-    # ── Overall Top (cross-profile) ───────────────────────────────────────────
-    overall_top_section = _build_overall_top(all_profile_rows, top_n=10)
-
-    # ── Top Convictions ───────────────────────────────────────────────────────
-    convictions_section = _build_convictions_section(all_profile_rows)
 
     # ── Magic Formula section ─────────────────────────────────────────────────
     magic_formula_section = _build_magic_formula_section(mf_rows, mf_ts)
@@ -2775,7 +3174,7 @@ def build_full_report(out_path: Path) -> None:
     )
     toc_links += f'<a href="#magic_formula">{_PROFILE_META["magic_formula"]["label"]}</a>'
     if dow_rows:   toc_links += '<a href="#dow30">Dow 30 Ranking</a>'
-    if bt_rows:    toc_links += '<a href="#backtest">Backtest vs S&amp;P 500</a>'
+    if bt_section: toc_links += '<a href="#backtest">Backtest vs S&amp;P 500</a>'
     toc_links += '<a href="#methodology">Methodology</a>'
 
     # ── Methodology ───────────────────────────────────────────────────────────
@@ -3668,6 +4067,21 @@ function loadWatchlist() {{
     }}
   }});
   renderWatchlist();
+}}
+
+/* --- Backtest tab switcher --- */
+function btSwitchTab(tag) {{
+  document.querySelectorAll('.bt-tab-panel').forEach(function(p) {{
+    p.style.display = 'none';
+  }});
+  var panel = document.getElementById('bt-panel-' + tag);
+  if (panel) panel.style.display = 'block';
+  document.querySelectorAll('.bt-tab-btn').forEach(function(b) {{
+    var active = b.getAttribute('data-tab') === tag;
+    b.style.background    = active ? '#3b82d4' : '#fff';
+    b.style.color         = active ? '#fff'    : '#374151';
+    b.style.borderColor   = active ? '#3b82d4' : '#e5e7eb';
+  }});
 }}
 
 /* --- Initialise on DOMContentLoaded --- */
