@@ -69,14 +69,14 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # ── TTL constants ─────────────────────────────────────────────────────────────
-# All TTLs set to 0 — every run fetches fresh data from Yahoo Finance.
-# Price history TTL kept at 1 day (historical closes never change,
-# only the most-recent day needs refreshing).
+# INFO / FINANCIALS cached for 1 day — fresh enough for daily screening runs,
+# avoids hammering Yahoo Finance rate limits on large universes (1000+ tickers).
+# PRICE_HISTORY cached for 7 days — historical closes are immutable intra-day.
 
-INFO_TTL           = timedelta(seconds=0)   # always refresh: prices, multiples, FCF
-FINANCIALS_TTL     = timedelta(seconds=0)   # always refresh: income, balance, cashflow
-PRICE_TTL          = timedelta(seconds=0)   # always refresh: current price
-PRICE_HISTORY_TTL  = timedelta(days=1)      # historical closes don't change — 1 day is enough
+INFO_TTL           = timedelta(days=1)   # re-fetch prices/multiples once per day
+FINANCIALS_TTL     = timedelta(days=1)   # re-fetch income/balance/cashflow once per day
+PRICE_TTL          = timedelta(days=1)   # re-fetch current price once per day
+PRICE_HISTORY_TTL  = timedelta(days=7)   # historical closes: 7 days is plenty
 
 # ── yfinance → schema field maps ──────────────────────────────────────────────
 

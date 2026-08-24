@@ -668,7 +668,8 @@ def _why_buy(row: dict, profile_key: str | None = None,
              profiles: list[str] | None = None,
              overall_score: float | None = None,
              ohlc: list[dict] | None = None,
-             score_history: list[float] | None = None) -> str:
+             score_history: list[float] | None = None,
+             profile_fits: dict | None = None) -> str:
     """
     Generate a 'Why buy X?' expandable panel.
     Layout (top to bottom, no scroll):
@@ -991,9 +992,86 @@ def _why_buy(row: dict, profile_key: str | None = None,
         if sparkline_html else ""
     )
 
+    # ── Overall Score breakdown section ──────────────────────────────────────
+    overall_breakdown_html = ""
+    if profile_fits and overall_score is not None:
+        _weights = {
+            "deep_value":      1.30,
+            "buffett_quality": 1.20,
+            "quality_value":   1.10,
+            "dividend_growth": 1.05,
+            "high_fcf_yield":  1.00,
+        }
+        _w_sum = sum(_weights.get(k, 1.0) for k in profile_fits)
+        _rows = ""
+        for pk in ("deep_value", "buffett_quality", "quality_value", "dividend_growth", "high_fcf_yield"):
+            if pk not in profile_fits:
+                continue
+            fit    = profile_fits[pk]
+            w      = _weights.get(pk, 1.0)
+            contrib = fit * w / _w_sum if _w_sum else 0.0
+            info   = _PROFILE_LABEL_SHORT[pk]
+            is_p   = profiles and pk in profiles
+            badge_bg = info[1] if is_p else "#94a3b8"
+            fit_c  = "#16a34a" if fit >= 70 else ("#eab308" if fit >= 45 else "#e11d48")
+            bar_w  = round(min(fit, 100))
+            _rows += f"""<tr>
+              <td style="padding:5px 8px">
+                <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;
+                             font-weight:700;background:{badge_bg}18;color:{badge_bg};
+                             border:1px solid {badge_bg}44">{info[0]}</span>
+                <span style="font-size:11px;color:#57606a;margin-left:4px">{info[2]}</span>
+                {"<span style='font-size:9px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 5px;font-weight:700;margin-left:4px'>PASS</span>" if is_p else ""}
+              </td>
+              <td style="padding:5px 8px;text-align:right">
+                <span style="font-size:13px;font-weight:800;color:{fit_c}">{fit:.0f}</span>
+                <span style="font-size:10px;color:#9ca3af">/100</span>
+              </td>
+              <td style="padding:5px 8px;text-align:right;color:#57606a;font-size:11px">{w:.2f}&times;</td>
+              <td style="padding:5px 8px;min-width:100px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden">
+                    <div style="width:{bar_w}%;height:100%;background:{fit_c};border-radius:3px"></div>
+                  </div>
+                  <span style="font-size:11px;font-weight:700;color:#374151;width:32px;text-align:right">{contrib:.1f}pts</span>
+                </div>
+              </td>
+            </tr>"""
+        oc = "#16a34a" if overall_score >= 75 else ("#eab308" if overall_score >= 55 else "#e11d48")
+        overall_breakdown_html = f"""
+        <div style="margin-bottom:14px">
+          <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
+                      letter-spacing:.06em;margin-bottom:8px">Overall Cross-Profile Score Breakdown</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;background:#f9fafb;
+                        border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+            <thead>
+              <tr style="background:#f0f2f5;font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.04em">
+                <th style="padding:5px 8px;text-align:left;font-weight:700">Screen</th>
+                <th style="padding:5px 8px;text-align:right;font-weight:700">Fit Score</th>
+                <th style="padding:5px 8px;text-align:right;font-weight:700">Weight</th>
+                <th style="padding:5px 8px;text-align:left;font-weight:700">Contribution</th>
+              </tr>
+            </thead>
+            <tbody>{_rows}</tbody>
+            <tfoot>
+              <tr style="background:#eff6ff;border-top:2px solid #bfdbfe">
+                <td colspan="3" style="padding:6px 8px;font-size:11px;font-weight:700;color:#3b82d4">
+                  Weighted Average Overall Score
+                </td>
+                <td style="padding:6px 8px;text-align:left">
+                  <span style="font-size:18px;font-weight:900;color:{oc}">{overall_score:.0f}</span>
+                  <span style="font-size:10px;color:#9ca3af">/100</span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>"""
+
     panel_html = f"""
         <!-- Score cards -->
         <div style="margin-bottom:14px">{cards_html}</div>
+        <!-- Overall Score Breakdown -->
+        {overall_breakdown_html}
         <!-- DCF Sensitivity -->
         {f'<div style="margin-bottom:14px">{sens_html}</div>' if sens_html else ""}
         {spark_section}
@@ -1006,9 +1084,10 @@ def _why_buy(row: dict, profile_key: str | None = None,
     return ticker, panel_html, sc_v, sc_c
 
 
-def _why_btn(ticker: str, sc_v: float | None, sc_c: str) -> str:
+def _why_btn(ticker: str, sc_v: float | None, sc_c: str, ns: str = "") -> str:
     """Toggle button rendered inside the data row <td>. Calls toggleWhy(id)."""
-    why_id = f"why-{ticker.replace('.', '-')}"
+    suffix = f"-{ns}" if ns else ""
+    why_id = f"why-{ticker.replace('.', '-')}{suffix}"
     sc_badge = (
         f'<span style="font-size:10px;font-weight:900;color:{sc_c};'
         f'background:{sc_c}18;border-radius:3px;padding:1px 5px;margin-left:4px">'
@@ -1023,9 +1102,10 @@ def _why_btn(ticker: str, sc_v: float | None, sc_c: str) -> str:
     )
 
 
-def _why_tr(panel_html: str, col_count: int, ticker: str) -> str:
+def _why_tr(panel_html: str, col_count: int, ticker: str, ns: str = "") -> str:
     """A hidden <tr> that expands inline below the data row — full table width."""
-    why_id = f"why-{ticker.replace('.', '-')}"
+    suffix = f"-{ns}" if ns else ""
+    why_id = f"why-{ticker.replace('.', '-')}{suffix}"
     return (
         f'<tr class="why-row" id="{why_id}" style="display:none">'
         f'<td colspan="{col_count}" style="padding:0;border-bottom:2px solid #bfdbfe">'
@@ -1370,7 +1450,7 @@ def _quality_badge(val: str, kind: str) -> str:
 
 
 def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
-                     passes: bool | None = None) -> str:
+                     passes: bool | None = None, profile_key: str | None = None) -> str:
     """Render a data row + inline why-buy expansion row for screener tables.
     Returns two <tr> elements concatenated as a single string."""
     mos_v = _fv(row.get("MoS%", "")) or 0.0
@@ -1416,11 +1496,13 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
                  'padding:1px 5px;font-weight:700">TRAP</span>')
 
     # Why Buy — generate panel + button
-    ticker, panel_html, sc_v, sc_c = _why_buy(row, profile_key=None,
-                                               ohlc=_PRICE_DATA.get(ticker) if _PRICE_DATA else None)
+    _tkr_pre = row.get("Ticker", "").strip()
+    ticker, panel_html, sc_v, sc_c = _why_buy(row, profile_key=profile_key,
+                                               ohlc=_PRICE_DATA.get(_tkr_pre) if _PRICE_DATA else None)
     sc_c = sc_c or "#9ca3af"
-    why_btn_html = _why_btn(ticker, sc_v, sc_c) if panel_html else ""
-    why_exp_row  = _why_tr(panel_html, col_count, ticker) if panel_html else ""
+    _ns = profile_key or ""
+    why_btn_html = _why_btn(ticker, sc_v, sc_c, ns=_ns) if panel_html else ""
+    why_exp_row  = _why_tr(panel_html, col_count, ticker, ns=_ns) if panel_html else ""
 
     rank_html = f'<span style="font-weight:800;color:{colour};font-size:13px">#{rank}</span>'
 
@@ -1446,7 +1528,7 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
     _star_btn = (
         f'<button class="star-btn" title="Add to watchlist" '
         f'data-ticker="{_ticker_raw}" data-row-json="{_row_json}" '
-        f'onclick="toggleStar(this)">☆</button>'
+        f'onclick="toggleStar(this)">&#9734;</button>'
     )
 
     data_tr = f"""<tr data-sector="{_sector_attr}" data-mos="{_mos_raw:.2f}" data-pe="{_pe_raw:.2f}" data-pfcf="{_pfcf_raw:.2f}" data-piotroski="{_pio_raw:.0f}">
@@ -1595,7 +1677,7 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
 
     # ── Top N detailed rows ────────────────────────────────────────────────────
     top_html = "".join(
-        _row_to_table_tr(r, i+1, colour, show_fit=True) for i, r in enumerate(top_rows)
+        _row_to_table_tr(r, i+1, colour, show_fit=True, profile_key=profile_key) for i, r in enumerate(top_rows)
     )
 
     # ── Rest: compact rows ─────────────────────────────────────────────────────
@@ -2181,8 +2263,8 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         _, panel_html, sc_v, sc_c = _why_buy(row, profiles=profiles,
                                               ohlc=_PRICE_DATA.get(tkr) if _PRICE_DATA else None)
         sc_c = sc_c or "#9ca3af"
-        why_btn_html = _why_btn(tkr, sc_v, sc_c) if panel_html else ""
-        why_exp_row  = _why_tr(panel_html, 12, tkr) if panel_html else ""
+        why_btn_html = _why_btn(tkr, sc_v, sc_c, ns="conv") if panel_html else ""
+        why_exp_row  = _why_tr(panel_html, 12, tkr, ns="conv") if panel_html else ""
 
         rows_html += f"""<tr>
           <td style="width:11%">
@@ -2373,7 +2455,7 @@ def _build_overall_top(
         )
 
         badge_html = ""
-        for pk in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value"):
+        for pk in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"):
             if pk in ticker_raw_fits.get(tkr, {}):
                 info = _PROFILE_LABEL_SHORT[pk]
                 is_p = pk in passes_in
@@ -2386,10 +2468,11 @@ def _build_overall_top(
 
         _, panel_html, _sc_v, _sc_c = _why_buy(row, profiles=passes_in if passes_in else None,
                                                 overall_score=score,
-                                                ohlc=_PRICE_DATA.get(tkr) if _PRICE_DATA else None)
+                                                ohlc=_PRICE_DATA.get(tkr) if _PRICE_DATA else None,
+                                                profile_fits=ticker_raw_fits.get(tkr))
         _sc_c = _sc_c or "#9ca3af"
-        why_btn_html = _why_btn(tkr, _sc_v if _sc_v is not None else score, _sc_c) if panel_html else ""
-        why_exp_row  = _why_tr(panel_html, 14, tkr) if panel_html else ""
+        why_btn_html = _why_btn(tkr, _sc_v if _sc_v is not None else score, _sc_c, ns="overall") if panel_html else ""
+        why_exp_row  = _why_tr(panel_html, 14, tkr, ns="overall") if panel_html else ""
 
         rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
 
@@ -2436,7 +2519,7 @@ def _build_overall_top(
       <div class="sec-body">
         <div class="ib blue" style="margin-bottom:18px">
           <strong>Overall Score (0&ndash;100)</strong> =
-          weighted average (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0).
+          weighted average (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0 + Dividend Growth &times;1.05).
           <strong>filled badge</strong> = strict PASS &nbsp;|&nbsp;
           <strong style="color:#94a3b8">grey badge</strong> = ranked but did not strictly pass.
         </div>
@@ -3335,13 +3418,13 @@ def build_full_report(out_path: Path) -> None:
   <!-- Watchlist section — populated by localStorage on load (ST13) -->
   <div id="watchlist-section" class="watchlist-section" style="display:none">
     <div class="watchlist-header">
-      <span style="font-size:20px">⭐</span>
+      <span style="font-size:20px">&#11088;</span>
       <span class="watchlist-title">My Watchlist</span>
       <span class="watchlist-subtitle" id="wl-count">0 companies saved</span>
       <button class="wl-export-btn" onclick="exportWatchlistCSV()" style="margin-left:12px">⬇ Export CSV</button>
     </div>
     <div id="watchlist-body">
-      <div class="watchlist-empty">No companies starred yet. Click ☆ on any row to add.</div>
+      <div class="watchlist-empty">No companies starred yet. Click &#9734; on any row to add.</div>
     </div>
   </div>
 
@@ -3364,7 +3447,7 @@ def build_full_report(out_path: Path) -> None:
 </div>
 
 <script>
-/* ── Why-Buy row toggle ───────────────────────────────────────────────────── */
+/* --- Why-Buy row toggle --- */
 function toggleWhy(id) {{
   var row = document.getElementById(id);
   var btn = document.getElementById('btn-' + id);
@@ -3393,7 +3476,7 @@ function toggleWhy(id) {{
   }}
 }}
 
-/* ── Live Filter Bar (ST12) ──────────────────────────────────────────────── */
+/* --- Live Filter Bar (ST12) --- */
 function applyFilter(sectionId) {{
   var filterBar = document.getElementById('filter-' + sectionId);
   var table     = document.getElementById('tbl-' + sectionId);
@@ -3464,7 +3547,7 @@ function initFilter(sectionId) {{
   if (counter) counter.textContent = 'Showing ' + total + ' of ' + total;
 }}
 
-/* ── Watchlist + localStorage (ST13) ────────────────────────────────────── */
+/* --- Watchlist + localStorage (ST13) --- */
 var WL_KEY = 'uv_watchlist';
 
 function _getWatchlist() {{
@@ -3485,12 +3568,12 @@ function toggleStar(btn) {{
   var idx = wl.findIndex(function(x) {{ return x.ticker === ticker; }});
   if (idx >= 0) {{
     wl.splice(idx, 1);
-    btn.textContent = '☆';
+    btn.textContent = '\u2606';
     btn.classList.remove('starred');
     btn.title = 'Add to watchlist';
   }} else {{
     wl.push(rowData);
-    btn.textContent = '⭐';
+    btn.textContent = '\u2B50';
     btn.classList.add('starred');
     btn.title = 'Remove from watchlist';
   }}
@@ -3507,7 +3590,7 @@ function renderWatchlist() {{
   if (count) count.textContent = wl.length + ' compan' + (wl.length === 1 ? 'y' : 'ies') + ' saved';
   if (wl.length === 0) {{
     section.style.display = 'none';
-    if (body) body.innerHTML = '<div class="watchlist-empty">No companies starred yet. Click ☆ on any row to add.</div>';
+    if (body) body.innerHTML = '<div class="watchlist-empty">No companies starred yet. Click \u2606 on any row to add.</div>';
     return;
   }}
   section.style.display = '';
@@ -3530,7 +3613,7 @@ function renderWatchlist() {{
       + '<td class="r">' + (d.piotroski != null ? d.piotroski+'/9' : '—') + '</td>'
       + '<td class="r">' + (d.fit != null ? d.fit.toFixed(0) : '—') + '</td>'
       + '<td><button class="star-btn starred" data-ticker="' + d.ticker + '" data-row-json=""'
-      + ' onclick="removeFromWatchlist(\'' + d.ticker + '\')">⭐</button></td>'
+      + ' onclick="removeFromWatchlist(this.dataset.ticker)">\u2B50</button></td>'
       + '</tr>';
   }});
   html += '</tbody></table>';
@@ -3542,7 +3625,7 @@ function removeFromWatchlist(ticker) {{
   _saveWatchlist(wl);
   /* update star buttons in main tables */
   document.querySelectorAll('.star-btn[data-ticker="' + ticker + '"]').forEach(function(btn) {{
-    btn.textContent = '☆';
+    btn.textContent = '\u2606';
     btn.classList.remove('starred');
     btn.title = 'Add to watchlist';
   }});
@@ -3561,7 +3644,7 @@ function exportWatchlistCSV() {{
       return s.indexOf(',') >= 0 ? '"' + s + '"' : s;
     }}).join(',');
   }});
-  var csv = header.join(',') + '\n' + rows.join('\n');
+  var csv = header.join(',') + '\\n' + rows.join('\\n');
   var blob = new Blob([csv], {{type:'text/csv'}});
   var url  = URL.createObjectURL(blob);
   var a    = document.createElement('a');
@@ -3579,7 +3662,7 @@ function loadWatchlist() {{
   document.querySelectorAll('.star-btn[data-ticker]').forEach(function(btn) {{
     var t = btn.getAttribute('data-ticker');
     if (inWl[t]) {{
-      btn.textContent = '⭐';
+      btn.textContent = '\u2B50';
       btn.classList.add('starred');
       btn.title = 'Remove from watchlist';
     }}
@@ -3587,7 +3670,7 @@ function loadWatchlist() {{
   renderWatchlist();
 }}
 
-/* ── Initialise on DOMContentLoaded ─────────────────────────────────────── */
+/* --- Initialise on DOMContentLoaded --- */
 document.addEventListener('DOMContentLoaded', function() {{
   /* Init all filter bars */
   ['deep_value-top','deep_value-rest',

@@ -53,10 +53,10 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _GLOBAL_CSV = _DATA_DIR / "global_tickers.csv"
 
-_SP500_URL      = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-_NASDAQ100_URL  = "https://en.wikipedia.org/wiki/Nasdaq-100"
-_DOW30_URL      = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
-_RUSSELL2000_URL = "https://en.wikipedia.org/wiki/Russell_2000_Index"
+_SP500_URL       = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+_NASDAQ100_URL   = "https://www.slickcharts.com/nasdaq100"
+_DOW30_URL       = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+_SP600_URL       = "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"
 _EUROSTOXX50_URL = "https://en.wikipedia.org/wiki/Euro_Stoxx_50"
 
 # Hardcoded Dow 30 as a reliable fallback (updated August 2026)
@@ -66,29 +66,98 @@ _DOW30_FALLBACK = [
     "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "TRV", "UNH", "V", "VZ", "WMT",
 ]
 
-# Hardcoded Russell 2000 fallback — ~50 well-known small-cap members (August 2026)
-_RUSSELL2000_FALLBACK = [
-    "ACLS", "ACMR", "AEIS", "AGIO", "AGYS", "ALRM", "AMN", "AMSF", "AMWD",
-    "APAM", "ARCO", "ARLO", "ATRC", "BOOT", "CALM", "CATO", "CENT", "CENTA",
-    "CHCO", "CODI", "CONN", "CPRX", "DAKT", "DCOM", "DIOD", "EFC", "ENVA",
-    "EVRI", "FBIZ", "FIVE", "FLGT", "FORM", "GFF", "GRWG", "HCSG", "HIFS",
-    "HNI", "HOPE", "HTLD", "HUBG", "IIIV", "INVA", "IPAR", "JBSS", "KFRC",
-    "KINS", "LAKE", "LANC", "LAWS", "LCNB",
+# Hardcoded NASDAQ-100 fallback — 102 members (August 2026)
+_NASDAQ100_FALLBACK = [
+    "AAPL", "ABNB", "ADBE", "ADI", "ADP", "ADSK", "AEP", "ALAB", "ALNY", "AMAT",
+    "AMD", "AMGN", "AMZN", "APP", "ARM", "ASML", "AVGO", "AXON", "BKNG", "BKR",
+    "CCEP", "CDNS", "CEG", "CMCSA", "COST", "CPRT", "CRWD", "CRWV", "CSCO", "CSX",
+    "CTAS", "DASH", "DDOG", "DXCM", "EXC", "FANG", "FAST", "FER", "FTNT", "GEHC",
+    "GILD", "GOOG", "GOOGL", "HON", "HONA", "IDXX", "INTC", "INTU", "ISRG", "KDP",
+    "KHC", "KLAC", "LIN", "LITE", "LRCX", "MAR", "MCHP", "MDLZ", "MELI", "META",
+    "MNST", "MPWR", "MRVL", "MSFT", "MSTR", "MU", "NBIS", "NFLX", "NVDA", "NXPI",
+    "ODFL", "ORLY", "PANW", "PAYX", "PCAR", "PDD", "PEP", "PLTR", "PYPL", "QCOM",
+    "REGN", "RKLB", "ROP", "ROST", "SBUX", "SHOP", "SNDK", "SNPS", "SPCX", "STX",
+    "TER", "TMUS", "TRI", "TSLA", "TTWO", "TXN", "VRTX", "WBD", "WDAY", "WDC",
+    "WMT", "XEL",
 ]
 
-# Hardcoded Euro Stoxx 50 fallback (August 2026 constituents, yfinance suffix)
+# Hardcoded S&P 600 small-cap fallback — 603 members (August 2026, Wikipedia)
+_SP600_FALLBACK = [
+    "AAMI", "AAP", "AAT", "ABCB", "ABG", "ABM", "ABR", "ACA", "ACAD", "ACHC",
+    "ACIW", "ACLS", "ACMR", "ACT", "ADAM", "ADEA", "ADIG", "ADMA", "ADNT", "ADT",
+    "ADUS", "AEO", "AESI", "AGNT", "AGO", "AGX", "AGYS", "AHCO", "AIN", "AIR",
+    "AKR", "ALG", "ALGT", "ALHC", "ALKS", "ALRM", "AMN", "AMPH", "AMR", "AMRX",
+    "AMSF", "AMTM", "ANDE", "ANIP", "AORT", "AOSL", "APAM", "APLE", "APOG", "ARCB",
+    "ARLO", "AROC", "ARR", "ASO", "ASTE", "ASTH", "ATEN", "ATMU", "AUB", "AVA",
+    "AWI", "AWR", "AX", "AZTA", "AZZ", "BANC", "BANF", "BANR", "BBT", "BCC",
+    "BCPC", "BFAM", "BFH", "BFS", "BGC", "BHE", "BJRI", "BKE", "BKU", "BL",
+    "BLFS", "BLKB", "BMI", "BNL", "BOH", "BOOT", "BOX", "BRC", "BTU", "BXMT",
+    "CACC", "CAG", "CAKE", "CALM", "CALX", "CALY", "CARG", "CASH", "CATY", "CBRL",
+    "CBU", "CC", "CCOI", "CCS", "CE", "CENT", "CENTA", "CENX", "CERT", "CFFN",
+    "CHCO", "CHEF", "CLSK", "CNK", "CNMD", "CNR", "CNS", "CNXC", "CNXN", "COCO",
+    "COHU", "COLL", "CON", "CORT", "COTY", "CPB", "CPF", "CPK", "CRC", "CRGY",
+    "CRI", "CRK", "CRSR", "CRVL", "CSR", "CSW", "CTS", "CUBI", "CURB", "CVBF",
+    "CVCO", "CVI", "CVSA", "CWEN", "CWEN-A", "CWK", "CWST", "CWT", "CXM", "CXW",
+    "CZR", "DAN", "DAVE", "DBD", "DCH", "DCOM", "DEA", "DEI", "DFH", "DFIN",
+    "DGII", "DIOD", "DLX", "DMC", "DNOW", "DORM", "DRH", "DV", "DXC", "DXPE",
+    "EAT", "EBC", "ECG", "ECPG", "EFC", "EFOR", "EGBN", "EIG", "EMN", "ENOV",
+    "ENPH", "ENR", "ENVA", "EPAC", "EPAM", "EPC", "EPRT", "ESE", "ESI", "ETSY",
+    "EVTC", "EXTR", "EYE", "EZPW", "FA", "FBK", "FBNC", "FBP", "FBRT", "FCF",
+    "FCPT", "FELE", "FFBC", "FG", "FHB", "FIBK", "FIVN", "FIZZ", "FLO", "FMC",
+    "FORM", "FOXF", "FRPT", "FSS", "FTDR", "FTRE", "FUL", "FULT", "FUN", "GBX",
+    "GEO", "GFF", "GIII", "GKOS", "GNL", "GNW", "GO", "GOLF", "GPI", "GPOR",
+    "GRBK", "GSHD", "GT", "GTES", "GTM", "GTY", "GVA", "HAFC", "HASI", "HAYW",
+    "HCC", "HCI", "HCSG", "HE", "HFWA", "HIW", "HLIT", "HLX", "HMN", "HNI",
+    "HOPE", "HP", "HRMY", "HSTM", "HTH", "HTLD", "HTO", "HUBG", "HWKN", "HZO",
+    "IART", "IBP", "ICHR", "ICUI", "IIPR", "INDB", "INDV", "INSP", "INSW", "INVA",
+    "INVX", "IOSP", "IPAR", "IRDM", "ITGR", "ITRI", "IVT", "JBGS", "JBLU", "JBSS",
+    "JBTM", "JJSF", "JOE", "JXN", "KAI", "KALU", "KFY", "KGS", "KLIC", "KMPR",
+    "KMT", "KMX", "KN", "KNTK", "KOP", "KRMN", "KSS", "KTB", "KWR", "LAUR",
+    "LAZ", "LBRT", "LCII", "LEG", "LEU", "LFST", "LGIH", "LGND", "LIF", "LKFN",
+    "LKQ", "LMAT", "LNC", "LNN", "LPG", "LQDA", "LQDT", "LRN", "LTC", "LTH",
+    "LUMN", "LW", "LXP", "LYFT", "LZ", "LZB", "MAC", "MAN", "MARA", "MATW",
+    "MATX", "MBC", "MBGL", "MBIN", "MC", "MCRI", "MCY", "MD", "MDU", "MFP",
+    "MGEE", "MGY", "MHK", "MHO", "MIR", "MKTX", "MLKN", "MMI", "MMSI", "MPT",
+    "MRCY", "MRP", "MRTN", "MSEX", "MSGS", "MTCH", "MTH", "MTRN", "MTUS", "MTX",
+    "MWA", "MXL", "MYRG", "NABL", "NATL", "NAVI", "NBHC", "NBTB", "NE", "NEO",
+    "NEOG", "NGVT", "NHC", "NHI", "NIC", "NMIH", "NOG", "NPK", "NPO", "NSIT",
+    "NSP", "NSSC", "NTCT", "NTST", "NWBI", "NWL", "NWN", "NX", "NXRT", "OFG",
+    "OGN", "OI", "OII", "OMCL", "OPLN", "OSIS", "OSW", "OTTR", "OUT", "PAHC",
+    "PARR", "PATK", "PAYC", "PAYO", "PBH", "PBI", "PCRX", "PDFS", "PEB", "PECO",
+    "PENG", "PENN", "PFBC", "PFS", "PGNY", "PHIN", "PI", "PIPR", "PJT", "PLAB",
+    "PLMR", "PLUS", "PLXS", "PMT", "POOL", "POWI", "POWL", "PPLI", "PRDO", "PRG",
+    "PRGO", "PRGS", "PRIM", "PRK", "PRKS", "PRLB", "PRSU", "PRVA", "PSMT", "PTCT",
+    "PTEN", "PTGX", "PTON", "PZZA", "QDEL", "QNST", "QRVO", "QTWO", "RAL", "RAMP",
+    "RCUS", "RDN", "RDNT", "RELY", "RES", "REX", "REYN", "REZI", "RHI", "RHP",
+    "RITM", "RNG", "RNST", "ROAD", "ROCK", "ROG", "RRR", "RSI", "RUN", "RUSHA",
+    "RXO", "SABR", "SAFE", "SAFT", "SAH", "SBCF", "SBH", "SBSI", "SCHL", "SCL",
+    "SCSC", "SDGR", "SEDG", "SEI", "SEZL", "SFBS", "SFNC", "SHAK", "SHEN", "SHO",
+    "SHOO", "SIG", "SKT", "SKY", "SKYW", "SLG", "SLVM", "SM", "SMP", "SMPL",
+    "SNDR", "SNEX", "SONO", "SPHR", "SPNT", "SPSC", "SRPT", "STAA", "STBA", "STC",
+    "STEP", "STRA", "SUPN", "SXI", "SXT", "TALO", "TBBK", "TDC", "TDS", "TDW",
+    "TFIN", "TFX", "TGTX", "THRM", "TILE", "TMDX", "TMP", "TNC", "TNDM", "TPC",
+    "TR", "TRIP", "TRMK", "TRN", "TRNO", "TRST", "TRUP", "UA", "UAA", "UCB",
+    "UCTT", "UE", "UFCS", "UFPT", "UNF", "UNFI", "UNIT", "UPBD", "UPWK", "URBN",
+    "USLM", "USPH", "UTI", "UTL", "UVV", "VAC", "VCEL", "VCTR", "VCYT", "VECO",
+    "VGNT", "VIR", "VIRT", "VRRM", "VRTS", "VSAT", "VSEC", "VSH", "VSNT", "VSTS",
+    "VSXY", "VTOL", "VVX", "VYX", "WABC", "WAFD", "WAY", "WD", "WDFC", "WEN",
+    "WERN", "WGO", "WHD", "WINA", "WKC", "WLY", "WOR", "WRBY", "WRLD", "WS",
+    "WSBC", "WSC", "WSFS", "WT", "WU", "WWW", "XHR", "XNCR", "XPEL", "YELP",
+    "YOU", "ZD", "ZWS",
+]
+
+# Hardcoded Euro Stoxx 50 fallback (August 2026 constituents, yfinance dot-suffix format)
 _EUROSTOXX50_FALLBACK = [
     "ABI.BR", "AD.AS", "ADS.DE", "AI.PA", "AIR.PA", "ALV.DE", "ASML.AS",
     "AXA.PA", "BAS.DE", "BAYN.DE", "BBVA.MC", "BMW.DE", "BNP.PA", "CRH.IR",
-    "CS.PA", "DG.PA", "DTE.DE", "ENEL.MI", "ENI.MI", "EssilorLuxottica.PA",
-    "EL.PA", "FLTR.IR", "FME.DE", "FRE.DE", "GS.MI", "IBE.MC", "IFX.DE",
-    "INGA.AS", "ISP.MI", "ITX.MC", "KER.PA", "LIN.DE", "MC.PA", "MBG.DE",
-    "ML.PA", "MRK.DE", "MUV2.DE", "NOKIA.HE", "OR.PA", "ORA.PA", "PHIA.AS",
-    "PRX.AS", "RMS.PA", "SAN.MC", "SAN.PA", "SAP.DE", "SGO.PA", "SIE.DE",
-    "TTE.PA", "UCG.MI",
+    "CS.PA", "DG.PA", "DTE.DE", "ENEL.MI", "ENI.MI", "EL.PA", "FLTR.IR",
+    "FME.DE", "FRE.DE", "IBE.MC", "IFX.DE", "INGA.AS", "ISP.MI", "ITX.MC",
+    "KER.PA", "LIN.DE", "MC.PA", "MBG.DE", "ML.PA", "MRK.DE", "MUV2.DE",
+    "NOKIA.HE", "OR.PA", "ORA.PA", "PHIA.AS", "PRX.AS", "RMS.PA", "SAN.MC",
+    "SAN.PA", "SAP.DE", "SGO.PA", "SIE.DE", "TTE.PA", "UCG.MI",
 ]
 
-# Hardcoded BET Romania tickers — static list (BET index, ~20 liquid members)
+# Hardcoded BET Romania tickers — static list (BET index, ~20 liquid members, yfinance dot-suffix)
 _BET_TICKERS = [
     "BRD.RO", "TLV.RO", "SNP.RO", "SNG.RO", "FP.RO", "TGN.RO",
     "COTE.RO", "BVB.RO", "M.RO", "EL.RO", "SNN.RO", "TEL.RO",
@@ -113,8 +182,17 @@ class UniverseSource(StrEnum):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _normalise(tickers: list[str]) -> list[str]:
-    """Strip whitespace, replace dots with hyphens, dedup, sort."""
-    normalised = {t.strip().replace(".", "-") for t in tickers if t and t.strip()}
+    """Strip whitespace, dedup, sort.
+    Preserves exchange-suffix dots (e.g. ASML.AS, BRD.RO) needed by yfinance.
+    Only replaces dot with hyphen for US-style share-class tickers (e.g. BRK.B → BRK-B),
+    identified by a single uppercase letter after the dot.
+    """
+    import re as _re
+    _us_dot = _re.compile(r'\.([A-Z])$')  # BRK.B → BRK-B, but not ASML.AS
+    def _fix(t: str) -> str:
+        t = t.strip()
+        return _us_dot.sub(r'-\1', t)
+    normalised = {_fix(t) for t in tickers if t and t.strip()}
     return sorted(normalised)
 
 
@@ -165,68 +243,71 @@ def get_sp500_tickers() -> list[str]:
 
 def get_nasdaq100_tickers() -> list[str]:
     """
-    Scrape the current NASDAQ-100 constituent list from Wikipedia.
+    Scrape the current NASDAQ-100 constituent list from slickcharts.com.
+    Falls back to a hardcoded list of 102 members if the scrape fails.
 
     Returns:
         Sorted, normalised list of ticker symbols.
 
     Raises:
-        RuntimeError: if the Wikipedia page cannot be parsed.
+        RuntimeError: if both live fetch and fallback fail.
     """
-    logger.info("Fetching NASDAQ-100 tickers from Wikipedia …")
+    logger.info("Fetching NASDAQ-100 tickers from slickcharts …")
     try:
         import io as _io
         html = _fetch_html(_NASDAQ100_URL)
         tables = pd.read_html(_io.StringIO(html))
-        # The constituents table is the first table that has a 'Ticker' column.
         df: Optional[pd.DataFrame] = None
         for table in tables:
             cols = [str(c).strip() for c in table.columns]
-            if "Ticker" in cols:
+            if "Symbol" in cols and len(table) > 50:
                 df = table
                 break
         if df is None:
-            raise ValueError("Could not locate a table with a 'Ticker' column.")
-        tickers: list[str] = df["Ticker"].dropna().tolist()
+            raise ValueError("Could not locate a Symbol table with >50 rows.")
+        tickers: list[str] = df["Symbol"].dropna().tolist()
+        result = _normalise(tickers)
+        if len(result) < 50:
+            raise ValueError(f"Too few tickers parsed: {len(result)}")
+        logger.info("NASDAQ-100: %d tickers retrieved from slickcharts.", len(result))
+        return result
     except Exception as exc:
-        raise RuntimeError(f"Failed to fetch NASDAQ-100 tickers: {exc}") from exc
-    result = _normalise(tickers)
-    logger.info("NASDAQ-100: %d tickers retrieved.", len(result))
-    return result
+        logger.warning("NASDAQ-100 live fetch failed (%s) — using hardcoded fallback.", exc)
+        result = _normalise(_NASDAQ100_FALLBACK)
+        logger.info("NASDAQ-100: %d tickers loaded from fallback.", len(result))
+        return result
 
 
 def get_russell2000_tickers() -> list[str]:
     """
-    Return the current Russell 2000 constituent list.
+    Return the current S&P 600 small-cap constituent list (used as Russell 2000 proxy).
 
-    Primary: scrapes the Wikipedia Russell 2000 Index page looking for any
-    table that has a 'Ticker' or 'Symbol' column with >100 rows.
-    Fallback: returns the hardcoded _RUSSELL2000_FALLBACK list of ~50 names.
+    Primary: scrapes the Wikipedia S&P 600 page (reliable, has a Symbol column).
+    Fallback: returns the hardcoded _SP600_FALLBACK list of 603 members.
 
     Returns:
         Sorted, normalised list of ticker symbols.
     """
-    logger.info("Fetching Russell 2000 tickers …")
+    logger.info("Fetching S&P 600 small-cap tickers (Russell 2000 proxy) …")
     try:
         import io as _io
-        html = _fetch_html(_RUSSELL2000_URL)
+        html = _fetch_html(_SP600_URL)
         tables = pd.read_html(_io.StringIO(html))
         for table in tables:
             cols = [str(c).strip() for c in table.columns]
-            for col in ("Ticker", "Symbol", "ticker", "symbol"):
-                if col in cols and len(table) > 100:
-                    tickers: list[str] = table[col].dropna().tolist()
-                    result = _normalise(tickers)
-                    if len(result) > 100:
-                        logger.info("Russell 2000: %d tickers from Wikipedia.", len(result))
-                        return result
-        raise ValueError("No large-enough table with Ticker/Symbol column found.")
+            if "Symbol" in cols and len(table) > 100:
+                tickers: list[str] = table["Symbol"].dropna().str.strip().tolist()
+                result = _normalise(tickers)
+                if len(result) > 100:
+                    logger.info("S&P 600: %d tickers from Wikipedia.", len(result))
+                    return result
+        raise ValueError("No large-enough Symbol table found.")
     except Exception as exc:
         logger.warning(
-            "Russell 2000 Wikipedia scrape failed (%s) — using hardcoded fallback list.", exc
+            "S&P 600 Wikipedia scrape failed (%s) — using hardcoded fallback list.", exc
         )
-        result = _normalise(_RUSSELL2000_FALLBACK)
-        logger.info("Russell 2000: %d tickers loaded from fallback.", len(result))
+        result = _normalise(_SP600_FALLBACK)
+        logger.info("S&P 600: %d tickers loaded from fallback.", len(result))
         return result
 
 
