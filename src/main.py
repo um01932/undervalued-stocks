@@ -594,6 +594,7 @@ def run(args: argparse.Namespace) -> None:
     _ALL_PROFILE_KEYS = [
         "deep_value", "buffett_quality", "high_fcf_yield",
         "quality_value", "dividend_growth",
+        "net_net", "momentum_quality", "contrarian",
     ]
 
     # Determine which profiles to run

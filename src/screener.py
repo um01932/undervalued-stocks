@@ -66,9 +66,10 @@ class ScreenerProfile(BaseModel):
     min_roic: Optional[float] = None               # % threshold (e.g. 8.0 for 8%)
     exclude_altman_distress: bool = False           # exclude Z < 1.0 when True (real distress zone; 1.81 is Grey Zone)
 
-    # Sub-Task 1 — extended quality filters
+    # Sub-Task 1 — extended quality filters + NCAV
     min_roe: Optional[float] = None                # % threshold e.g. 15.0
     min_gross_margin: Optional[float] = None       # % threshold e.g. 30.0
+    min_ncav_mos_pct: Optional[float] = None       # require price < NCAV by this margin (e.g. 0 = any discount)
 
     # Sub-Task 4 — Beneish M-Score
     exclude_beneish_risk: bool = False             # exclude M > -1.78 (potential earnings manipulator)
@@ -77,6 +78,13 @@ class ScreenerProfile(BaseModel):
     min_dividend_yield: Optional[float] = None     # % threshold e.g. 2.5 means 2.5%
     max_payout_fcf:     Optional[float] = None     # % threshold e.g. 70 means 70%
     max_sbc_to_fcf_pct: Optional[float] = None
+
+    # Sub-Task 2 — Momentum + Quality
+    min_price_momentum_12m: Optional[float] = None  # % threshold e.g. 10.0 = +10% past year
+    min_operating_margin: Optional[float] = None    # % threshold e.g. 15.0
+
+    # Sub-Task 3 — Short Interest Contrarian
+    min_short_float_pct: Optional[float] = None    # require high short interest e.g. 10.0 = >10%
 
 
 # ── Built-in presets ──────────────────────────────────────────────────────────
@@ -141,6 +149,43 @@ BUILTIN_PROFILES: dict[str, ScreenerProfile] = {
         min_margin_of_safety_pct=10.0,
         min_piotroski=5,
         exclude_beneish_risk=True,
+    ),
+    # ── Sub-Task 1 — Benjamin Graham Net-Net (NCAV) ──────────────────────────
+    "net_net": ScreenerProfile(
+        name="net_net",
+        # Core: price must be below NCAV (net current asset value)
+        min_ncav_mos_pct=0.0,      # require any positive NCAV discount
+        # Quality guard: not a complete distress zombie
+        min_piotroski=3,           # very lenient — pure NCAV already brutal filter
+        # No P/E or P/B filter — Graham intentionally paid below book here
+        sort_by="Score",
+    ),
+    # ── Sub-Task 2 — Momentum + Quality ──────────────────────────────────────
+    "momentum_quality": ScreenerProfile(
+        name="momentum_quality",
+        # Momentum: was up at least 5% in the past 12 months
+        min_price_momentum_12m=5.0,   # 5% YoY minimum
+        # Quality: profitable with high ROIC and operating efficiency
+        min_roic=12.0,
+        min_operating_margin=15.0,
+        min_piotroski=5,
+        # Not dirt-cheap but not wildly expensive
+        max_pe=35.0,
+        max_p_fcf=30.0,
+        exclude_beneish_risk=True,
+        sort_by="Score",
+    ),
+    # ── Sub-Task 3 — Short Interest Contrarian ────────────────────────────────
+    "contrarian": ScreenerProfile(
+        name="contrarian",
+        # High short interest (crowd is bearish) — require >10% of float shorted
+        min_short_float_pct=10.0,
+        # But fundamentals must be solid to distinguish "hated value" from "deserved short"
+        min_piotroski=5,
+        max_net_debt_ebitda=3.0,
+        min_margin_of_safety_pct=10.0,
+        exclude_beneish_risk=True,
+        sort_by="Score",
     ),
 }
 
@@ -209,42 +254,67 @@ def load_profiles(yaml_path: Optional[str] = None) -> dict[str, ScreenerProfile]
 
 def compute_composite_score(result: "ValuationResult") -> Optional[float]:
     """
-    Compute a 0–100 composite rank score from four weighted pillars.
+    Compute a 0–100 composite rank score from seven weighted pillars.
 
-    Pillar weights:
-      Valuation     (30 pts) — Margin of Safety %
-      Quality/Moat  (25 pts) — ROIC (20% = full marks)
-      Financial     (25 pts) — Piotroski score (7 = full marks, F6/F7 skipped)
-      Momentum      (20 pts) — 52-week position (lower = more upside)
+    Pillar weights (total = 100 pts):
+      Valuation        (28 pts) — Margin of Safety %
+      Quality/Moat     (24 pts) — ROIC (20% = full marks)
+      Financial Health (24 pts) — Piotroski score (7 = full marks)
+      Mean Reversion   (10 pts) — 52-week position (lower = more upside)
+      FCF Growth       ( 8 pts) — 3yr FCF CAGR (15% = full marks)
+      Operating Margin ( 4 pts) — Operating margin % (20% = full marks)
+      Dilution Penalty (-4 pts max) — penalises >5% annual share dilution
 
-    Neutral (12.5 / 10) awarded when a pillar's data is unavailable so that
-    missing-data companies are not unfairly penalised or rewarded.
+    Neutral awarded when data is unavailable so missing-data companies are
+    not unfairly penalised or rewarded.
     """
-    # Valuation pillar (30 pts): MoS%
+    # 1. Valuation pillar (28 pts): MoS%
     mos = result.margin_of_safety_pct
-    val_score = min(max(mos or 0, 0), 100) * 0.30
+    val_score = min(max(mos or 0, 0), 100) * 0.28
 
-    # Quality / Moat pillar (25 pts): ROIC
+    # 2. Quality / Moat pillar (24 pts): ROIC
     if result.roic is not None:
-        quality_score = min(result.roic * 100 / 20, 1.0) * 25   # 20% ROIC → full marks
+        quality_score = min(result.roic * 100 / 20, 1.0) * 24   # 20% ROIC → full marks
     else:
-        quality_score = 12.5  # neutral
+        quality_score = 12.0  # neutral
 
-    # Financial Health pillar (25 pts): Piotroski
+    # 3. Financial Health pillar (24 pts): Piotroski
     if result.piotroski_score is not None:
-        health_score = (result.piotroski_score / 7) * 25  # 7 = max achievable without F6/F7
+        health_score = (result.piotroski_score / 7) * 24  # 7 = max achievable
     else:
-        health_score = 12.5  # neutral
+        health_score = 12.0  # neutral
 
-    # Price Momentum / Mean Reversion pillar (20 pts): 52w position (lower = better)
+    # 4. Mean Reversion pillar (10 pts): 52w position (lower = better)
     pos = result.price_vs_52w_low_pct
     if pos is not None:
-        momentum_score = (1 - pos / 100) * 20
+        reversion_score = (1 - pos / 100) * 10
     else:
-        momentum_score = 10  # neutral
+        reversion_score = 5.0  # neutral
 
-    total = val_score + quality_score + health_score + momentum_score
-    return round(total, 1)
+    # 5. FCF Growth pillar (8 pts): 3yr CAGR — 15% CAGR = full marks, capped at 30%
+    fcf_g = result.fcf_growth_3yr_pct
+    if fcf_g is not None:
+        fcf_growth_score = min(max(fcf_g, 0), 30) / 30 * 8
+    else:
+        fcf_growth_score = 4.0  # neutral
+
+    # 6. Operating Margin pillar (4 pts): 20% margin = full marks, capped at 30%
+    op_m = result.operating_margin
+    if op_m is not None:
+        op_margin_score = min(max(op_m * 100, 0), 30) / 30 * 4
+    else:
+        op_margin_score = 2.0  # neutral
+
+    # 7. Dilution penalty (−4 pts max): >5% annual dilution → full penalty
+    dil = result.shares_dilution_pct
+    if dil is not None and dil > 0:
+        dilution_penalty = -min(dil / 5.0, 1.0) * 4  # 5% dilution → -4pts
+    else:
+        dilution_penalty = 0.0  # no penalty if no data or anti-dilutive (buybacks)
+
+    total = (val_score + quality_score + health_score + reversion_score
+             + fcf_growth_score + op_margin_score + dilution_penalty)
+    return round(max(total, 0.0), 1)
 
 
 # ── Filter & rank ─────────────────────────────────────────────────────────────
@@ -256,8 +326,10 @@ _OUTPUT_COLUMNS = [
     "MoS%", "P/E", "P/B", "EV/EBITDA", "P/FCF", "NetDebt/EBITDA",
     "DCF GGM", "DCF Exit", "Graham", "DCF Avg", "DCF Model",
     "Piotroski", "ROIC%", "ROE%", "ROA%", "Beta", "Gross Margin%",
+    "Op.Margin%", "FCF Growth 3yr%", "Dilution%",
     "Dividend Yield%", "Payout (FCF)%", "SBC/FCF%",
     "Sector P/E %ile", "Sector P/FCF %ile",
+    "NCAV/Share", "NCAV MoS%", "Momentum 12m%", "Short Float%",
     "Score", "Beneish M", "Manip.Risk",
 ]
 
@@ -353,6 +425,30 @@ def _passes_filter(result: ValuationResult, profile: ScreenerProfile) -> bool:
         if result.sbc_to_fcf_pct > profile.max_sbc_to_fcf_pct:
             return False
 
+    # Sub-Task 1 — NCAV: require price < NCAV (positive margin)
+    if profile.min_ncav_mos_pct is not None:
+        if result.ncav_mos_pct is None:
+            return False   # no NCAV data → fail (strict filter)
+        if result.ncav_mos_pct < profile.min_ncav_mos_pct:
+            return False
+
+    # Sub-Task 2 — Momentum: require minimum 12m price return
+    if profile.min_price_momentum_12m is not None and result.price_momentum_12m is not None:
+        if result.price_momentum_12m * 100 < profile.min_price_momentum_12m:
+            return False
+
+    # Sub-Task 2 — Operating margin minimum
+    if profile.min_operating_margin is not None and result.operating_margin is not None:
+        if result.operating_margin * 100 < profile.min_operating_margin:
+            return False
+
+    # Sub-Task 3 — Short interest: require minimum short float %
+    if profile.min_short_float_pct is not None:
+        if result.short_float_pct is None:
+            return False   # no short data → fail
+        if result.short_float_pct * 100 < profile.min_short_float_pct:
+            return False
+
     return True
 
 
@@ -411,11 +507,18 @@ def apply_profile(
             "ROA%":             (r.roa * 100) if r.roa is not None else None,
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
+            "Op.Margin%":       (r.operating_margin * 100) if r.operating_margin is not None else None,
+            "FCF Growth 3yr%":  r.fcf_growth_3yr_pct,
+            "Dilution%":        r.shares_dilution_pct,
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "SBC/FCF%":         r.sbc_to_fcf_pct,
             "Sector P/E %ile":  r.sector_pe_percentile,
             "Sector P/FCF %ile": r.sector_pfcf_percentile,
+            "NCAV/Share":       r.ncav_per_share,
+            "NCAV MoS%":        r.ncav_mos_pct,
+            "Momentum 12m%":    (r.price_momentum_12m * 100) if r.price_momentum_12m is not None else None,
+            "Short Float%":     (r.short_float_pct * 100) if r.short_float_pct is not None else None,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",
@@ -562,11 +665,18 @@ def rank_all(
             "ROA%":             (r.roa * 100) if r.roa is not None else None,
             "Beta":             r.beta,
             "Gross Margin%":    (r.gross_margin * 100) if r.gross_margin is not None else None,
+            "Op.Margin%":       (r.operating_margin * 100) if r.operating_margin is not None else None,
+            "FCF Growth 3yr%":  r.fcf_growth_3yr_pct,
+            "Dilution%":        r.shares_dilution_pct,
             "Dividend Yield%":  (r.dividend_yield * 100) if r.dividend_yield is not None else None,
             "Payout (FCF)%":    (r.payout_ratio_fcf * 100) if r.payout_ratio_fcf is not None else None,
             "SBC/FCF%":         r.sbc_to_fcf_pct,
             "Sector P/E %ile":  r.sector_pe_percentile,
             "Sector P/FCF %ile": r.sector_pfcf_percentile,
+            "NCAV/Share":       r.ncav_per_share,
+            "NCAV MoS%":        r.ncav_mos_pct,
+            "Momentum 12m%":    (r.price_momentum_12m * 100) if r.price_momentum_12m is not None else None,
+            "Short Float%":     (r.short_float_pct * 100) if r.short_float_pct is not None else None,
             "Score":            r.composite_score,
             "Beneish M":        r.beneish_m,
             "Manip.Risk":       "YES" if r.beneish_flag else "NO",

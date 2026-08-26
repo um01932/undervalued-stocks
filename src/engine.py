@@ -124,6 +124,19 @@ class ValuationResult(BaseModel):
     sbc_adjusted_fcf: Optional[float] = None # FCF - avg_sbc_3y (per share)
     shares_dilution_pct: Optional[float] = None  # YoY share count change % (positive = diluting)
 
+    # FCF Growth 3yr CAGR (new signal for composite score)
+    fcf_growth_3yr_pct: Optional[float] = None   # CAGR of FCF over last 3 years (%)
+
+    # Sub-Task 1 — Net-Net / NCAV
+    ncav_per_share:  Optional[float] = None   # (current_assets - total_liabilities) / shares
+    ncav_mos_pct:    Optional[float] = None   # (ncav - price) / ncav * 100  (positive = below NCAV)
+
+    # Sub-Task 2 — Momentum
+    price_momentum_12m: Optional[float] = None  # 52-week price return (decimal, e.g. 0.25 = +25%)
+
+    # Sub-Task 3 — Short Interest Contrarian
+    short_float_pct: Optional[float] = None  # short interest as % of float
+
     # Sector-relative percentiles (Sub-Task 8)
     sector_pe_percentile:   Optional[float] = None  # 0-100, lower = cheaper vs sector
     sector_pfcf_percentile: Optional[float] = None
@@ -976,6 +989,26 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
     if shares_now and shares_3y and shares_3y > 0:
         shares_dilution_pct_v = round((shares_now / shares_3y - 1) * 100, 2)
 
+    # Sub-Task 1 — NCAV: (current_assets - total_liabilities) / shares
+    ncav_per_share_v: Optional[float] = None
+    ncav_mos_pct_v:   Optional[float] = None
+    if data.balance_sheet:
+        bs = data.balance_sheet[0]  # most recent period
+        cur_assets  = _safe_val(bs.get("current_assets"))
+        tot_liab    = _safe_val(bs.get("total_liabilities"))
+        shares_ncav = _safe_val(data.info.get("sharesOutstanding"))
+        if cur_assets is not None and tot_liab is not None and shares_ncav and shares_ncav > 0:
+            ncav = cur_assets - tot_liab
+            ncav_per_share_v = round(ncav / shares_ncav, 4)
+            if current_price and ncav_per_share_v and ncav_per_share_v > 0:
+                ncav_mos_pct_v = round((ncav_per_share_v - current_price) / ncav_per_share_v * 100, 1)
+
+    # Sub-Task 2 — 12-month price momentum (from info dict)
+    price_momentum_12m_v = _safe_val(data.info.get("price_momentum_12m"))
+
+    # Sub-Task 3 — Short interest % of float
+    short_float_pct_v = _safe_val(data.info.get("short_float_pct"))
+
     result = ValuationResult(
         ticker=data.ticker,
         company_name=info.get("short_name"),
@@ -1017,6 +1050,10 @@ def evaluate(data: TickerData, params: DCFParams, rf_rate: float = 0.045) -> Val
         sbc_to_fcf_pct=sbc_to_fcf_pct_v,
         sbc_adjusted_fcf=sbc_adjusted_fcf_v,
         shares_dilution_pct=shares_dilution_pct_v,
+        ncav_per_share=ncav_per_share_v,
+        ncav_mos_pct=ncav_mos_pct_v,
+        price_momentum_12m=price_momentum_12m_v,
+        short_float_pct=short_float_pct_v,
     )
     from src.screener import compute_composite_score  # late import to avoid circular dep
     result.composite_score = compute_composite_score(result)

@@ -69,13 +69,15 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # ── TTL constants ─────────────────────────────────────────────────────────────
-# INFO / FINANCIALS cached for 1 day — fresh enough for daily screening runs,
-# avoids hammering Yahoo Finance rate limits on large universes (1000+ tickers).
+# INFO / FINANCIALS cached for 7 days — avoids re-hammering Yahoo Finance on
+# large universes (6000+ tickers). Fundamental data (P/E, balance sheet) does
+# not change intra-week; re-running the screener within the same week reuses
+# the local DuckDB cache entirely.
 # PRICE_HISTORY cached for 7 days — historical closes are immutable intra-day.
 
-INFO_TTL           = timedelta(days=1)   # re-fetch prices/multiples once per day
-FINANCIALS_TTL     = timedelta(days=1)   # re-fetch income/balance/cashflow once per day
-PRICE_TTL          = timedelta(days=1)   # re-fetch current price once per day
+INFO_TTL           = timedelta(days=7)   # re-fetch prices/multiples once per week
+FINANCIALS_TTL     = timedelta(days=7)   # re-fetch income/balance/cashflow once per week
+PRICE_TTL          = timedelta(days=7)   # re-fetch current price once per week
 PRICE_HISTORY_TTL  = timedelta(days=7)   # historical closes: 7 days is plenty
 
 # ── yfinance → schema field maps ──────────────────────────────────────────────
@@ -104,6 +106,10 @@ INFO_FIELD_MAP: dict[str, str] = {
     "returnOnAssets":       "roa",
     "grossMargins":         "gross_margin",
     "operatingMargins":     "operating_margin",
+    # Sub-Task 3 — Short Interest Contrarian
+    "shortPercentOfFloat":  "short_float_pct",
+    # Sub-Task 2 — Momentum (52w price return proxy)
+    "52WeekChange":         "price_momentum_12m",
 }
 
 # yfinance cashflow row-name variants to handle version differences
@@ -119,12 +125,17 @@ _FINANCIALS_ROW_MAP = {
     "Net Income": "net_income",
 }
 _BS_ROW_MAP = {
-    "Total Assets": "total_assets",
-    "Total Liabilities Net Minority Interest": "total_liabilities",
-    "Total Debt": "total_debt",
-    "Cash And Cash Equivalents": "total_cash",
-    "Stockholders Equity": "stockholders_equity",
-    "Common Stock Equity": "stockholders_equity",  # fallback key
+    "Total Assets":                             "total_assets",
+    "Total Liabilities Net Minority Interest":  "total_liabilities",
+    "Total Debt":                               "total_debt",
+    "Cash And Cash Equivalents":                "total_cash",
+    "Stockholders Equity":                      "stockholders_equity",
+    "Common Stock Equity":                      "stockholders_equity",  # fallback key
+    # Sub-Task 1 — NCAV needs current assets and current liabilities
+    "Current Assets":                           "current_assets",
+    "Total Current Assets":                     "current_assets",       # fallback key
+    "Current Liabilities":                      "current_liabilities",
+    "Total Current Liabilities Net Minority Interest": "current_liabilities",  # fallback
 }
 
 
@@ -227,6 +238,8 @@ CREATE TABLE IF NOT EXISTS balance_sheet (
     total_debt           DOUBLE,
     total_cash           DOUBLE,
     stockholders_equity  DOUBLE,
+    current_assets       DOUBLE,
+    current_liabilities  DOUBLE,
     PRIMARY KEY (ticker, period_date)
 );
 """
@@ -456,6 +469,7 @@ class CacheStore:
             "ticker", "period_date", "fetched_at",
             "total_assets", "total_liabilities", "total_debt",
             "total_cash", "stockholders_equity",
+            "current_assets", "current_liabilities",
         ],
     }
 

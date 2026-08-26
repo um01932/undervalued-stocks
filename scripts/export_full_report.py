@@ -1025,7 +1025,8 @@ def _why_buy(row: dict, profile_key: str | None = None,
         }
         _w_sum = sum(_weights.get(k, 1.0) for k in profile_fits)
         _rows = ""
-        for pk in ("deep_value", "buffett_quality", "quality_value", "dividend_growth", "high_fcf_yield"):
+        for pk in ("deep_value", "buffett_quality", "quality_value", "dividend_growth", "high_fcf_yield",
+                   "net_net", "momentum_quality", "contrarian"):
             if pk not in profile_fits:
                 continue
             fit    = profile_fits[pk]
@@ -1658,6 +1659,24 @@ _PROFILE_META = {
         "icon": "DIV",
         "desc": "Income-oriented screen. Min dividend yield 2.5%, FCF payout ≤ 70%, Piotroski ≥ 5, Net Debt/EBITDA ≤ 2.0. Targets financially healthy companies that return capital to shareholders sustainably.",
         "colour": "#0891b2",
+    },
+    "net_net": {
+        "label": "Net-Net (NCAV)",
+        "icon": "NN",
+        "desc": "Benjamin Graham's deepest value screen. Price must be below Net Current Asset Value (current assets − all liabilities). The most conservative valuation floor — you're paying less than liquidation value.",
+        "colour": "#b45309",
+    },
+    "momentum_quality": {
+        "label": "Momentum + Quality",
+        "icon": "MQ",
+        "desc": "Combines price momentum (52w return ≥ 5%) with quality fundamentals (ROIC ≥ 12%, Op.Margin ≥ 15%, Piotroski ≥ 5). Companies already moving in the right direction with strong underlying economics.",
+        "colour": "#ea580c",
+    },
+    "contrarian": {
+        "label": "Short Contrarian",
+        "icon": "CON",
+        "desc": "Heavily shorted companies (short float ≥ 10%) with solid fundamentals. High short interest signals crowd pessimism — when combined with good Piotroski and margin of safety, creates contrarian opportunity.",
+        "colour": "#dc2626",
     },
     "magic_formula": {
         "label": "Magic Formula",
@@ -3010,51 +3029,77 @@ def _build_backtest_section(
               {monthly_dtail}
             </div>"""
 
-    # ── Build tab panels: holding × portfolio_size × strategy ────────────────
-    # Default: 3M holding + Top 5, first strategy visible
-    tab_blocks = ""
-    for hm, hlabel, htag in holding_configs:
-        for top_n, plabel, ptag in portfolio_configs:
-            panel_id   = f"bt-panel-{htag}-{ptag}"
-            is_default = (hm == 3 and top_n == 5)
+    # ── Build tab panels: ranking × holding × portfolio_size × strategy ──────
+    # Default: Momentum ranking + 3M holding + Top 5, first strategy visible
+    rank_tab_blocks = {}   # rk_tag -> html string of all panels for that ranking
+    for rk_method, rklabel, rktag, rkcolour in ranking_configs:
+        tab_blocks = ""
+        for hm, hlabel, htag in holding_configs:
+            for top_n, plabel, ptag in portfolio_configs:
+                panel_id   = f"bt-panel-{rktag}-{htag}-{ptag}"
+                is_default = (hm == 3 and top_n == 5)
 
-            # Strategy sub-tab buttons inside this panel
-            strat_btns = ""
-            strat_panels = ""
-            for si, (strat_key, tickers, slabel, scolour) in enumerate(strategies):
-                sp_id     = f"{panel_id}-s{si}"
-                s_active  = si == 0
-                s_btn_sty = (
-                    f"background:{scolour};color:#fff;border-color:{scolour}"
-                    if s_active else
-                    "background:#fff;color:#374151;border-color:#e5e7eb"
-                )
-                strat_btns += (
-                    f'<button class="bt-strat-btn" '
-                    f'data-panel="{panel_id}" data-strat="{sp_id}" '
-                    f'onclick="btSwitchStrat(\'{panel_id}\',\'{sp_id}\')" '
-                    f'style="padding:6px 18px;font-size:12px;font-weight:700;border:1px solid;'
-                    f'border-radius:20px;cursor:pointer;{s_btn_sty}">'
-                    f'<span style="width:8px;height:8px;border-radius:50%;background:{scolour};'
-                    f'display:inline-block;margin-right:6px;vertical-align:middle"></span>'
-                    f'{slabel}</button>'
-                )
-                card_html = _render_strategy_card(
-                    strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel
-                )
-                strat_panels += f"""
+                strat_btns = ""
+                strat_panels = ""
+                for si, (strat_key, tickers, slabel, scolour) in enumerate(strategies):
+                    sp_id    = f"{panel_id}-s{si}"
+                    s_active = si == 0
+                    s_btn_sty = (
+                        f"background:{scolour};color:#fff;border-color:{scolour}"
+                        if s_active else
+                        "background:#fff;color:#374151;border-color:#e5e7eb"
+                    )
+                    strat_btns += (
+                        f'<button class="bt-strat-btn" '
+                        f'data-panel="{panel_id}" data-strat="{sp_id}" '
+                        f'onclick="btSwitchStrat(\'{panel_id}\',\'{sp_id}\')" '
+                        f'style="padding:6px 18px;font-size:12px;font-weight:700;border:1px solid;'
+                        f'border-radius:20px;cursor:pointer;{s_btn_sty}">'
+                        f'<span style="width:8px;height:8px;border-radius:50%;background:{scolour};'
+                        f'display:inline-block;margin-right:6px;vertical-align:middle"></span>'
+                        f'{slabel}</button>'
+                    )
+                    card_html = _render_strategy_card(
+                        strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel,
+                        rk_method=rk_method,
+                    )
+                    strat_panels += f"""
             <div class="bt-strat-panel" id="{sp_id}" style="{'display:block' if s_active else 'display:none'}">
               {card_html}
             </div>"""
 
-            tab_blocks += f"""
-        <div class="bt-tab-panel bt-pt-panel" id="{panel_id}" style="{'display:block' if is_default else 'display:none'}">
+                tab_blocks += f"""
+        <div class="bt-tab-panel bt-pt-panel bt-rk-{rktag}" id="{panel_id}" style="{'display:block' if is_default else 'display:none'}">
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
             <span style="font-size:11px;color:#57606a;font-weight:600;margin-right:4px">Strategy:</span>
             {strat_btns}
           </div>
           {strat_panels}
         </div>"""
+
+        rank_tab_blocks[rktag] = tab_blocks
+
+    # ── Ranking method tab buttons (Momentum / Fundamental) ───────────────────
+    rank_btns = ""
+    for rk_method, rklabel, rktag, rkcolour in ranking_configs:
+        is_first = rktag == ranking_configs[0][2]
+        active = (
+            f"background:{rkcolour};color:#fff;border-color:{rkcolour}"
+            if is_first else
+            "background:#fff;color:#374151;border-color:#e5e7eb"
+        )
+        desc = (
+            "Re-ranks picks by 12M trailing price return at each entry"
+            if rk_method == "momentum" else
+            "Re-ranks picks by cross-profile ProfileFit score at each entry"
+        )
+        rank_btns += (
+            f'<button class="bt-rk-btn" data-rk="{rktag}" '
+            f'onclick="btSwitchRank(\'{rktag}\')" '
+            f'style="padding:8px 22px;font-size:12px;font-weight:700;border:1px solid;'
+            f'border-radius:20px;cursor:pointer;{active}" title="{desc}">'
+            f'{rklabel} Ranking</button>'
+        )
 
     # ── Holding period tab buttons ─────────────────────────────────────────────
     hold_btns = ""
@@ -3080,6 +3125,15 @@ def _build_backtest_section(
             f'{plabel}</button>'
         )
 
+    # Combine all ranking blocks — only momentum visible by default
+    all_tab_blocks = ""
+    for rk_method, rklabel, rktag, rkcolour in ranking_configs:
+        is_first = rktag == ranking_configs[0][2]
+        all_tab_blocks += f"""
+      <div class="bt-rk-panel" id="bt-rk-panel-{rktag}" style="{'display:block' if is_first else 'display:none'}">
+        {rank_tab_blocks[rktag]}
+      </div>"""
+
     return f"""
     <span class="section-anchor" id="backtest"></span>
     <div class="section">
@@ -3089,7 +3143,7 @@ def _build_backtest_section(
       <div class="section-title">Walk-Forward Backtest — Non-Overlapping Simulation 2019–2025</div>
       <div class="section-sub">
         Simulates investing <strong>$10,000</strong> starting January 2019, rebalancing at each interval.
-        Select <strong>holding period</strong> and <strong>portfolio size</strong> below.
+        Select <strong>ranking method</strong>, <strong>holding period</strong> and <strong>portfolio size</strong> below.
         Compare against the same $10,000 held in the <strong>S&amp;P 500</strong>.
         <span style="color:#d97706;font-weight:700">⚠ Look-ahead bias applies</span> —
         see explanation below.
@@ -3365,6 +3419,16 @@ def _build_backtest_section(
         </div>
       </details>
 
+      <!-- Ranking method tabs -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
+        <span style="font-size:11px;color:#57606a;font-weight:700;align-self:center;margin-right:4px;text-transform:uppercase;letter-spacing:.05em">Ranking:</span>
+        {rank_btns}
+      </div>
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:14px;padding-left:2px">
+        <strong>Momentum</strong> = at each rebalance, picks the tickers with the highest 12-month trailing return. &nbsp;|&nbsp;
+        <strong>Fundamental</strong> = at each rebalance, picks by cross-profile ProfileFit score (quality + valuation, no price momentum).
+      </div>
+
       <!-- Holding period tabs -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         {hold_btns}
@@ -3376,7 +3440,7 @@ def _build_backtest_section(
         {port_btns}
       </div>
 
-      {tab_blocks}
+      {all_tab_blocks}
 
       <div class="limit-box">
         <strong>Quick reminder — simulation limitations:</strong>
@@ -3391,11 +3455,14 @@ def _build_backtest_section(
 # ── Top Convictions section ───────────────────────────────────────────────────
 
 _PROFILE_LABEL_SHORT = {
-    "deep_value":      ("DV",  "#3b82d4", "Deep Value"),
-    "buffett_quality": ("BQ",  "#7c3aed", "Buffett Quality"),
-    "high_fcf_yield":  ("FCF", "#059669", "High FCF Yield"),
-    "quality_value":   ("QV",  "#d97706", "Quality Value"),
-    "dividend_growth": ("DIV", "#0891b2", "Dividend Growth"),
+    "deep_value":       ("DV",  "#3b82d4", "Deep Value"),
+    "buffett_quality":  ("BQ",  "#7c3aed", "Buffett Quality"),
+    "high_fcf_yield":   ("FCF", "#059669", "High FCF Yield"),
+    "quality_value":    ("QV",  "#d97706", "Quality Value"),
+    "dividend_growth":  ("DIV", "#0891b2", "Dividend Growth"),
+    "net_net":          ("NN",  "#b45309", "Net-Net (NCAV)"),
+    "momentum_quality": ("MQ",  "#ea580c", "Momentum+Quality"),
+    "contrarian":       ("CON", "#dc2626", "Short Contrarian"),
 }
 
 def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
@@ -3677,7 +3744,8 @@ def _build_overall_top(
         )
 
         badge_html = ""
-        for pk in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"):
+        for pk in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth",
+                   "net_net", "momentum_quality", "contrarian"):
             if pk in ticker_raw_fits.get(tkr, {}):
                 info = _PROFILE_LABEL_SHORT[pk]
                 is_p = pk in passes_in
@@ -3792,7 +3860,8 @@ def build_full_report(out_path: Path) -> None:
     profile_sections: list[str] = []
     n_pass_per_profile: dict[str, int] = {}
 
-    for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"):
+    for key in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth",
+                "net_net", "momentum_quality", "contrarian"):
         p = _most_recent(f"*_{key}.csv", exclude_backtest=True)
         if p is None:
             rows, ts = [], "—"
@@ -4016,7 +4085,8 @@ def build_full_report(out_path: Path) -> None:
     toc_links += '<a href="#convictions">&#9733; Top Convictions</a>'
     toc_links += "".join(
         f'<a href="#{k}">{_PROFILE_META[k]["label"]}</a>'
-        for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth")
+        for k in ("deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth",
+                  "net_net", "momentum_quality", "contrarian")
     )
     toc_links += f'<a href="#magic_formula">{_PROFILE_META["magic_formula"]["label"]}</a>'
     if dow_rows:   toc_links += '<a href="#dow30">Dow 30 Ranking</a>'
@@ -4953,13 +5023,35 @@ function loadWatchlist() {{
 /* --- Backtest tab switchers --- */
 var _btCurrentHold = '3M';
 var _btCurrentPt   = 'P5';
+var _btCurrentRank = 'RM';
 
 function _btShowPanel() {{
-  document.querySelectorAll('.bt-tab-panel').forEach(function(p) {{
+  /* hide all panels inside the active ranking block only */
+  var rkPanel = document.getElementById('bt-rk-panel-' + _btCurrentRank);
+  if (!rkPanel) return;
+  rkPanel.querySelectorAll('.bt-tab-panel').forEach(function(p) {{
     p.style.display = 'none';
   }});
-  var panel = document.getElementById('bt-panel-' + _btCurrentHold + '-' + _btCurrentPt);
+  var panel = document.getElementById('bt-panel-' + _btCurrentRank + '-' + _btCurrentHold + '-' + _btCurrentPt);
   if (panel) panel.style.display = 'block';
+}}
+
+function btSwitchRank(rktag) {{
+  document.querySelectorAll('.bt-rk-panel').forEach(function(p) {{
+    p.style.display = 'none';
+  }});
+  var rkPanel = document.getElementById('bt-rk-panel-' + rktag);
+  if (rkPanel) rkPanel.style.display = 'block';
+  _btCurrentRank = rktag;
+  _btShowPanel();
+  document.querySelectorAll('.bt-rk-btn').forEach(function(b) {{
+    var active = b.getAttribute('data-rk') === rktag;
+    var isMom  = rktag === 'RM';
+    var ac     = isMom ? '#3b82d4' : '#7c3aed';
+    b.style.background  = active ? ac     : '#fff';
+    b.style.color       = active ? '#fff' : '#374151';
+    b.style.borderColor = active ? ac     : '#e5e7eb';
+  }});
 }}
 
 function btSwitchHold(htag) {{
