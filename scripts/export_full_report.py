@@ -3657,17 +3657,23 @@ def _build_overall_top(
 
     For every company in the universe, collects its ProfileFit score from each
     profile CSV it appears in, then computes a weighted-average Overall Score.
-    Deep Value carries weight 1.3 (strictest), down to FCF Yield at 1.0.
+    All 8 profiles contribute: Deep Value ×1.3, Net-Net ×1.25, Buffett Quality ×1.2,
+    Quality Value ×1.1, Dividend Growth ×1.05, FCF Yield ×1.0,
+    Momentum+Quality ×0.9, Contrarian ×0.85.
 
     Shows top-N with Why-Buy reasoning for each.
     """
     # Profile weights — stricter profiles carry more signal
+    # New screens get lower weight: they're complementary, not replacements
     weights = {
-        "deep_value":      1.30,
-        "buffett_quality": 1.20,
-        "quality_value":   1.10,
-        "high_fcf_yield":  1.00,
-        "dividend_growth": 1.05,
+        "deep_value":       1.30,
+        "buffett_quality":  1.20,
+        "quality_value":    1.10,
+        "dividend_growth":  1.05,
+        "high_fcf_yield":   1.00,
+        "net_net":          1.25,  # NCAV is extremely strict — high signal when it passes
+        "momentum_quality": 0.90,  # momentum is noisier than pure value
+        "contrarian":       0.85,  # contrarian adds colour but lower conviction
     }
 
     ticker_raw_fits: dict[str, dict[str, float]] = {}   # tkr -> {profile: raw fit}
@@ -3802,7 +3808,10 @@ def _build_overall_top(
       <div class="sec-body">
         <div class="ib blue" style="margin-bottom:18px">
           <strong>Overall Score (0&ndash;100)</strong> =
-          weighted average (Deep Value &times;1.3 + Buffett Quality &times;1.2 + Quality Value &times;1.1 + FCF Yield &times;1.0 + Dividend Growth &times;1.05).
+          weighted average across all 8 profiles:
+          Deep Value &times;1.3 &nbsp;·&nbsp; Net-Net &times;1.25 &nbsp;·&nbsp; Buffett Quality &times;1.2 &nbsp;·&nbsp;
+          Quality Value &times;1.1 &nbsp;·&nbsp; Dividend Growth &times;1.05 &nbsp;·&nbsp; FCF Yield &times;1.0 &nbsp;·&nbsp;
+          Momentum+Quality &times;0.9 &nbsp;·&nbsp; Contrarian &times;0.85.
           <strong>filled badge</strong> = strict PASS &nbsp;|&nbsp;
           <strong style="color:#94a3b8">grey badge</strong> = ranked but did not strictly pass.
         </div>
@@ -4016,8 +4025,14 @@ def build_full_report(out_path: Path) -> None:
     # ── New backtest: monthly simulation for Top Overall + Top Convictions ────
     # Derive ranked ticker lists from the already-computed sections
     _bt_weights = {
-        "deep_value": 1.30, "buffett_quality": 1.20,
-        "quality_value": 1.10, "dividend_growth": 1.05, "high_fcf_yield": 1.00,
+        "deep_value":       1.30,
+        "buffett_quality":  1.20,
+        "quality_value":    1.10,
+        "dividend_growth":  1.05,
+        "high_fcf_yield":   1.00,
+        "net_net":          1.25,
+        "momentum_quality": 0.90,
+        "contrarian":       0.85,
     }
     def _overall_score(tkr: str, raw_fits: dict[str, dict[str, float]]) -> float:
         fits  = raw_fits.get(tkr, {})
@@ -4642,8 +4657,10 @@ def build_full_report(out_path: Path) -> None:
           </p>
           <p style="margin-top:10px;color:#6b7280;font-size:12px">
             The <strong>Top Overall</strong> section aggregates ProfileFit scores across all 5 profiles
-            using a weighted average (Deep Value &times;1.3, Buffett Quality &times;1.2,
-            Quality Value &times;1.1, Dividend Growth &times;1.05, FCF Yield &times;1.0).
+            using a weighted average across all 8 profiles
+            (Deep Value &times;1.3, Net-Net &times;1.25, Buffett Quality &times;1.2,
+            Quality Value &times;1.1, Dividend Growth &times;1.05, FCF Yield &times;1.0,
+            Momentum+Quality &times;0.9, Contrarian &times;0.85).
             <strong>Top Convictions</strong> shows companies that pass 2+ profiles strictly —
             with GOLD/HIGH/MODERATE conviction levels scaled dynamically to the number of profiles with data.
           </p>
