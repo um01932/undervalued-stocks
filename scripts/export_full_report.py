@@ -582,21 +582,24 @@ def _dcf_sensitivity_table(row: dict) -> str:
 
 
 def _score_cards(row: dict, overall_score: float | None = None) -> str:
-    """4 metric cards: MoS, Piotroski, ROIC, ROE + composite/overall score badges."""
+    """Score breakdown cards: MoS, Piotroski, ROIC, FCF Growth, Op.Margin + composite/overall badges."""
     def _norm(v, lo, hi):
         if v is None: return 0.0
         return min(max((v - lo) / (hi - lo), 0.0), 1.0)
 
-    mos_v  = _fv(row.get("MoS%", ""))
-    pio_v  = _fv(row.get("Piotroski", ""))
-    roic_v = _fv(row.get("ROIC%", ""))
-    roe_v  = _fv(row.get("ROE%", ""))
-    comp_v = _fv(row.get("Score", ""))
+    mos_v    = _fv(row.get("MoS%", ""))
+    pio_v    = _fv(row.get("Piotroski", ""))
+    roic_v   = _fv(row.get("ROIC%", ""))
+    fcfg_v   = _fv(row.get("FCF Growth 3yr%", ""))
+    opm_v    = _fv(row.get("Op.Margin%", ""))
+    dil_v    = _fv(row.get("Dilution%", ""))
+    comp_v   = _fv(row.get("Score", ""))
 
-    mos_n  = _norm(mos_v,  0, 60)
-    pio_n  = _norm(pio_v,  0, 9)
-    roic_n = _norm(roic_v, 0, 30)
-    roe_n  = _norm(roe_v,  0, 25)
+    mos_n    = _norm(mos_v,   0, 60)
+    pio_n    = _norm(pio_v,   0, 9)
+    roic_n   = _norm(roic_v,  0, 30)
+    fcfg_n   = _norm(fcfg_v,  0, 30)
+    opm_n    = _norm(opm_v,   0, 30)
 
     def _bar(n, colour):
         w = round(n * 80, 1)
@@ -608,7 +611,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
         )
 
     def _card(label, val_str, norm, colour, weight, contrib):
-        return f"""<div style="flex:1;min-width:100px;background:#f9fafb;border:1px solid #e5e7eb;
+        return f"""<div style="flex:1;min-width:90px;background:#f9fafb;border:1px solid #e5e7eb;
                                border-radius:8px;padding:10px 12px;text-align:center">
           <div style="font-size:10px;color:#8d96a0;text-transform:uppercase;letter-spacing:.05em;
                       margin-bottom:4px">{label}</div>
@@ -617,19 +620,37 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
           <div style="font-size:10px;color:#8d96a0;margin-top:4px">wt {weight} → <strong style="color:#374151">{contrib:.1f}pts</strong></div>
         </div>"""
 
+    # Dilution badge (penalty, shown only if diluting)
+    dil_badge = ""
+    if dil_v is not None and dil_v > 0:
+        pen = min(dil_v / 5.0, 1.0) * 4
+        dil_badge = (
+            f'<div style="flex:1;min-width:90px;background:#fef2f2;border:1px solid #fecaca;'
+            f'border-radius:8px;padding:10px 12px;text-align:center">'
+            f'<div style="font-size:10px;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;'
+            f'margin-bottom:4px">Dilution</div>'
+            f'<div style="font-size:18px;font-weight:900;color:#e11d48;line-height:1">+{dil_v:.1f}%</div>'
+            f'<div style="font-size:10px;color:#b91c1c;margin-top:8px">penalty −{pen:.1f}pts</div>'
+            f'</div>'
+        )
+
     cards = (
         _card("Margin of Safety",
               f"{mos_v:.1f}%" if mos_v is not None else "—",
-              mos_n, "#3b82d4", "40%", mos_n * 40) +
+              mos_n, "#3b82d4", "28%", mos_n * 28) +
         _card("Piotroski F-Score",
               f"{pio_v:.0f}/9" if pio_v is not None else "—",
-              pio_n, "#7c3aed", "25%", pio_n * 25) +
+              pio_n, "#7c3aed", "24%", pio_n * 24) +
         _card("ROIC",
               f"{roic_v:.1f}%" if roic_v is not None else "—",
-              roic_n, "#059669", "25%", roic_n * 25) +
-        _card("ROE",
-              f"{roe_v:.1f}%" if roe_v is not None else "—",
-              roe_n, "#d97706", "10%", roe_n * 10)
+              roic_n, "#059669", "24%", roic_n * 24) +
+        _card("FCF Growth 3yr",
+              f"{fcfg_v:+.0f}%" if fcfg_v is not None else "—",
+              fcfg_n, "#0891b2", "8%", fcfg_n * 8) +
+        _card("Op. Margin",
+              f"{opm_v:.1f}%" if opm_v is not None else "—",
+              opm_n, "#d97706", "4%", opm_n * 4) +
+        dil_badge
     )
 
     # totals row
@@ -657,7 +678,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     <div style="margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                   letter-spacing:.06em;margin-bottom:8px">Score Breakdown
-        <span style="font-weight:400;color:#c0c4cb"> — MoS×40% + Piotroski×25% + ROIC×25% + ROE (informational)</span>
+        <span style="font-weight:400;color:#c0c4cb"> — MoS×28% + Piotroski×24% + ROIC×24% + FCF Growth×8% + Op.Margin×4% − Dilution penalty</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">{cards}</div>
       <div style="margin-top:4px">{totals}</div>
@@ -753,7 +774,7 @@ def _why_buy(row: dict, profile_key: str | None = None,
             f"A Price-to-Book of <strong>{pb_v:.2f}×</strong> means you are acquiring "
             f"{ticker}'s net assets — factories, intellectual property, cash — "
             f"for <strong>less than their stated accounting value</strong>. "
-            f"This is unusual for an S&amp;P 500 company and historically associated with above-average future returns."
+            f"This is unusual for a <strong>{_index_label(ticker)}</strong> company and historically associated with above-average future returns."
         )
     elif pb_v is not None and pb_v >= 1.5:
         sentences.append(
@@ -949,7 +970,7 @@ def _why_buy(row: dict, profile_key: str | None = None,
         )
         sentences.append(
             f"{ticker} operates in the <strong>{sector_plain}</strong> sector and is one of only a handful of "
-            f"S&amp;P 500 companies to simultaneously pass {profile_names} — "
+            f"screened companies to simultaneously pass {profile_names} — "
             f"{len(profiles)} independent investment philosophies reaching the same conclusion."
         )
     elif profile_key:
@@ -1028,12 +1049,12 @@ def _why_buy(row: dict, profile_key: str | None = None,
                 <span style="font-size:10px;color:#9ca3af">/100</span>
               </td>
               <td style="padding:5px 8px;text-align:right;color:#57606a;font-size:11px">{w:.2f}&times;</td>
-              <td style="padding:5px 8px;min-width:100px">
+              <td style="padding:5px 8px;min-width:80px">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden">
+                  <div style="flex:1;min-width:40px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden">
                     <div style="width:{bar_w}%;height:100%;background:{fit_c};border-radius:3px"></div>
                   </div>
-                  <span style="font-size:11px;font-weight:700;color:#374151;width:32px;text-align:right">{contrib:.1f}pts</span>
+                  <span style="font-size:11px;font-weight:700;color:#374151;white-space:nowrap;text-align:right">{contrib:.1f}pts</span>
                 </div>
               </td>
             </tr>"""
@@ -1042,7 +1063,8 @@ def _why_buy(row: dict, profile_key: str | None = None,
         <div style="margin-bottom:14px">
           <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                       letter-spacing:.06em;margin-bottom:8px">Overall Cross-Profile Score Breakdown</div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px;background:#f9fafb;
+          <div style="overflow-x:auto">
+          <table style="width:100%;min-width:320px;border-collapse:collapse;font-size:12px;background:#f9fafb;
                         border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
             <thead>
               <tr style="background:#f0f2f5;font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.04em">
@@ -1065,6 +1087,7 @@ def _why_buy(row: dict, profile_key: str | None = None,
               </tr>
             </tfoot>
           </table>
+          </div>
         </div>"""
 
     panel_html = f"""
@@ -1082,6 +1105,93 @@ def _why_buy(row: dict, profile_key: str | None = None,
         <div style="font-size:13px;line-height:1.7;color:#374151">{body}</div>"""
 
     return ticker, panel_html, sc_v, sc_c
+
+
+# ── Index / exchange origin badge ────────────────────────────────────────────
+
+_INDEX_RULES: list[tuple] = [
+    # (suffix_or_pattern, label, bg, fg)
+    (".RO",    "BVB",     "#e8f5e9", "#2e7d32"),
+    (".DE",    "XETRA",   "#e3f2fd", "#1565c0"),
+    (".PA",    "EURONX",  "#e3f2fd", "#1565c0"),
+    (".AS",    "AMS",     "#e3f2fd", "#1565c0"),
+    (".MC",    "BME",     "#fce4ec", "#880e4f"),
+    (".MI",    "MIL",     "#e8f5e9", "#2e7d32"),
+    (".BR",    "EURONX",  "#e3f2fd", "#1565c0"),
+    (".HE",    "OMXH",    "#e3f2fd", "#1565c0"),
+    (".IR",    "ISE",     "#e8f5e9", "#2e7d32"),
+    (".L",     "LSE",     "#f3e5f5", "#6a1b9a"),
+    (".SW",    "SIX",     "#fff3e0", "#e65100"),
+    ("-T",     "TSX",     "#fff8e1", "#f57f17"),
+]
+
+# S&P 500 constituents (used to label US tickers)
+_SP500_SET: set[str] = set()
+_DOW30_SET: set[str] = set()
+_NASDAQ100_SET: set[str] = set()
+
+def _load_index_sets() -> None:
+    """Populate _SP500_SET, _DOW30_SET, _NASDAQ100_SET from most recent CSVs."""
+    global _SP500_SET, _DOW30_SET, _NASDAQ100_SET
+    import csv as _csv
+    # Load S&P 500 from universe module (fast, no network)
+    try:
+        from src.universe import get_sp500_tickers
+        _SP500_SET = set(get_sp500_tickers())
+    except Exception:
+        _SP500_SET = set()
+    # DOW 30 from most recent dow30 CSV
+    try:
+        dow_p = _most_recent("*_dow30_ranking.csv")
+        if dow_p:
+            with open(dow_p, encoding="utf-8") as f:
+                _DOW30_SET = {r["Ticker"].strip() for r in _csv.DictReader(f) if r.get("Ticker")}
+    except Exception:
+        _DOW30_SET = set()
+    # NASDAQ-100 hardcoded core (avoids network call)
+    _NASDAQ100_SET = {
+        "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","AVGO","COST",
+        "NFLX","ASML","AZN","TMUS","CSCO","ADBE","AMD","PEP","INTC","INTU",
+        "CMCSA","AMGN","AMAT","MU","ISRG","HON","LRCX","VRTX","KLAC","PANW",
+        "REGN","SNPS","CDNS","MRVL","ADI","ORLY","CRWD","CEG","ABNB","FTNT",
+        "MAR","DASH","WDAY","MELI","PYPL","CSGP","DXCM","ARM","ROP","ROST",
+        "AEP","IDXX","TTD","ODFL","VRSK","FAST","BIIB","CTSH","EA","FANG",
+        "KDP","XEL","ANSS","TEAM","DLTR","GEHC","PCAR","ZS","CDNS","WBD",
+        "MNST","SIRI","MDLZ","JD","BIDU","NTES","PDD","CDW","NXPI","MCHP",
+    }
+
+def _index_badge(ticker: str) -> str:
+    """Return a small HTML badge showing which index/exchange this ticker belongs to."""
+    t = ticker.strip().upper()
+    # European / non-US suffix rules
+    for suffix, label, bg, fg in _INDEX_RULES:
+        if t.endswith(suffix.upper()):
+            return (f'<span style="font-size:9px;font-weight:700;background:{bg};color:{fg};'
+                    f'border-radius:3px;padding:1px 5px;margin-left:3px">{label}</span>')
+    # US tickers — check index membership
+    if t in _DOW30_SET:
+        return ('<span style="font-size:9px;font-weight:700;background:#fff3e0;color:#e65100;'
+                'border-radius:3px;padding:1px 5px;margin-left:3px">DOW</span>')
+    if t in _NASDAQ100_SET:
+        return ('<span style="font-size:9px;font-weight:700;background:#e8eaf6;color:#283593;'
+                'border-radius:3px;padding:1px 5px;margin-left:3px">NDQ</span>')
+    if t in _SP500_SET:
+        return ('<span style="font-size:9px;font-weight:700;background:#e3f2fd;color:#1565c0;'
+                'border-radius:3px;padding:1px 5px;margin-left:3px">SPX</span>')
+    # Unknown US small-cap
+    return ('<span style="font-size:9px;font-weight:700;background:#f5f5f5;color:#9e9e9e;'
+            'border-radius:3px;padding:1px 5px;margin-left:3px">OTC</span>')
+
+def _index_label(ticker: str) -> str:
+    """Return plain-text index label for use in Why Buy prose."""
+    t = ticker.strip().upper()
+    for suffix, label, _bg, _fg in _INDEX_RULES:
+        if t.endswith(suffix.upper()):
+            return label
+    if t in _DOW30_SET:    return "Dow Jones 30"
+    if t in _NASDAQ100_SET: return "NASDAQ-100"
+    if t in _SP500_SET:    return "S&P 500"
+    return "listed"
 
 
 def _why_btn(ticker: str, sc_v: float | None, sc_c: str, ns: str = "") -> str:
@@ -1190,6 +1300,9 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
 /* quality badges */
 .qbadge { display:inline-block; padding:2px 7px; border-radius:4px;
           font-size:11px; font-weight:700; }
+
+/* mob-label — hidden on desktop, shown on mobile via media query */
+.mob-label { display:none; }
 
 /* ── BACKTEST ── */
 .bt-header { display:flex; gap:24px; flex-wrap:wrap; margin-bottom:24px; }
@@ -1366,10 +1479,134 @@ details.sec-wrap:not([open]) > .sec-body { display:none; }
 .star-btn:hover { opacity:.7; }
 .star-btn.starred { filter: drop-shadow(0 0 3px #fbbf24); }
 
-@media(max-width:640px){
-  .header-meta, .bt-header, .stats-bar { flex-direction:column; }
+/* ── RESPONSIVE ─────────────────────────────────────────────────────────────── */
+
+/* Tablet ≤ 900px */
+@media(max-width:900px){
+  .page { padding:20px 16px 40px; }
+  .section { padding:20px 20px; }
+  .sec-body { padding:20px 20px !important; }
+  .report-header { padding:24px 22px; }
+  .report-header h1 { font-size:22px; }
+  .header-meta { gap:16px; }
+  .hm-item .hm-value { font-size:14px; }
+  .sec-meta { display:none; }
   .stbl { font-size:11px; }
-  .stbl th, .stbl td { padding:5px 5px; }
+}
+
+/* Mobile ≤ 600px */
+@media(max-width:768px){
+  .page { padding:12px 10px 32px; }
+
+  /* Header */
+  .report-header { padding:18px 16px; border-radius:10px; }
+  .report-header h1 { font-size:18px; margin-bottom:4px; }
+  .report-header .subtitle { font-size:12px; }
+  .header-meta { flex-direction:column; gap:10px; margin-top:14px; }
+  .hm-item { display:flex; justify-content:space-between; align-items:center; }
+  .hm-item .hm-label { font-size:10px; }
+  .hm-item .hm-value { font-size:13px; }
+
+  /* Sections */
+  .section { padding:16px 14px; border-radius:10px; margin-bottom:16px; }
+  details.sec-wrap > .sec-body { padding:16px 14px !important; }
+  .sec-hdr { padding:12px 14px; border-radius:10px; }
+  .sec-title { font-size:13px; }
+  .sec-badge { width:26px; height:26px; font-size:10px; }
+  .section-title { font-size:16px; }
+
+  /* Pills / stats bar */
+  .stats-bar { gap:8px; }
+  .stat-pill { min-width:calc(50% - 4px); padding:10px 12px; }
+  .sp-value { font-size:20px; }
+
+  /* TOC — wrap pills */
+  .toc { padding:14px 14px; }
+  .toc a { font-size:11px; padding:3px 9px; margin:2px 3px 2px 0; }
+
+  /* Disclaimer */
+  .disclaimer { padding:10px 12px; }
+
+  /* ── Screener table → card layout on mobile ── */
+  .stbl, .stbl thead, .stbl tbody, .stbl th, .stbl td, .stbl tr {
+    display: block;
+  }
+  .stbl thead tr { position:absolute; top:-9999px; left:-9999px; }
+  .stbl tbody tr {
+    border:1px solid #e5e7eb; border-radius:10px;
+    margin-bottom:12px; padding:12px 14px;
+    background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.06);
+  }
+  .stbl tbody tr:hover td { background:transparent; }
+  .stbl tbody td[data-label="#"] { display:none; }
+  .stbl tbody td {
+    display:flex !important; justify-content:space-between; align-items:center;
+    padding:5px 2px; border-bottom:1px solid #f0f2f5;
+    font-size:12px; text-align:left !important;
+    width:100% !important; box-sizing:border-box;
+  }
+  .stbl tbody td:last-child { border-bottom:none; }
+  /* mobile label span — shown on mobile */
+  .mob-label {
+    display:inline !important;
+    font-size:10px; font-weight:700; color:#8d96a0;
+    text-transform:uppercase; letter-spacing:.05em;
+    flex-shrink:0; min-width:90px; margin-right:8px;
+    line-height:1.4;
+  }
+  /* ticker cell — full-width block header of the card */
+  .stbl tbody td[data-label="Ticker"] {
+    flex-direction:column; align-items:flex-start;
+    border-bottom:2px solid #e5e7eb; padding-bottom:10px; margin-bottom:2px;
+  }
+  .stbl tbody td[data-label="Ticker"] .mob-label { display:none; }
+  /* gauge bars full width inside card */
+  .gauge-wrap { width:100%; }
+  .gauge-track { min-width:80px; flex:1; }
+
+  /* Backtest tables — keep horizontal scroll */
+  .bt-tbl { font-size:11px; min-width:480px; }
+  .bt-tbl th, .bt-tbl td { padding:7px 8px; }
+
+  /* Backtest KPI boxes */
+  .bt-header { flex-direction:column; gap:8px; }
+  .bt-kpi { padding:10px 12px; }
+  .bt-kpi .kv { font-size:20px; }
+
+  /* Stats pills */
+  .bt-header { gap:8px; }
+
+  /* Why-buy body */
+  .why-body-inline { padding:14px 14px; }
+
+  /* Filter bar — stack */
+  .filter-bar { gap:6px; }
+  .filter-bar input[type=number],
+  .filter-bar select { max-width:90px; min-width:70px; font-size:11px; }
+  .filter-count { margin-left:0; width:100%; }
+
+  /* Watchlist */
+  .watchlist-section { padding:14px 12px; }
+  .watchlist-header { flex-wrap:wrap; gap:8px; }
+  .watchlist-subtitle { margin-left:0; width:100%; }
+  .wl-export-btn { font-size:11px; padding:4px 10px; }
+
+  /* Backtest tab buttons */
+  .bt-hold-btn, .bt-pt-btn { font-size:11px !important; padding:5px 12px !important; }
+
+  /* Backtest $10k value boxes — stack on mobile */
+  .bt-val-box { flex-direction:column !important; }
+  .bt-val-item { border-left:none !important; padding-left:0 !important;
+                 border-top:1px solid #e5e7eb; padding-top:10px !important;
+                 margin-top:4px; }
+  .bt-val-item:first-child { border-top:none; padding-top:0 !important; }
+
+  /* Equity SVG full width */
+  .bt-eq-svg { width:100% !important; height:auto !important; }
+
+  /* KPI pills row — 2 per row */
+  .bt-kpi-row { gap:6px !important; }
+  .bt-kpi-row > div { min-width:calc(50% - 3px) !important; }
 }
 
 @media print {
@@ -1532,32 +1769,27 @@ def _row_to_table_tr(row: dict, rank: int, colour: str, show_fit: bool = False,
     )
 
     data_tr = f"""<tr data-sector="{_sector_attr}" data-mos="{_mos_raw:.2f}" data-pe="{_pe_raw:.2f}" data-pfcf="{_pfcf_raw:.2f}" data-piotroski="{_pio_raw:.0f}">
-      <td style="width:3%">{rank_html}</td>
-      <td style="width:12%">
-        <div class="ticker-lbl">{_ticker_raw} {_star_btn}</div>
+      <td data-label="#" style="width:3%">{rank_html}</td>
+      <td data-label="Ticker" style="width:12%">
+        <div class="ticker-lbl">{_ticker_raw} {_index_badge(_ticker_raw)} {_star_btn}</div>
         <div class="company-lbl">{row.get('Company','')}</div>
         <div style="margin-top:2px">{badge}</div>
         {why_btn_html}
       </td>
-      <td style="width:9%;color:#57606a;font-size:11px">{row.get('Sector','') or '—'}</td>
-      <td class="r" style="width:6%">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-      <td class="r" style="width:7%">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-      <td style="width:9%">{mos_bar}</td>
-      <td style="width:8%">{pos_bar}</td>
-      <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-      <td class="r" style="width:5%">{_fmt(row.get('P/B',''),2,suffix='x')}</td>
-      <td class="r" style="width:6%">{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
-      <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-      <td class="r" style="width:6%">{_fmt(row.get('NetDebt/EBITDA',''),2,prefix='')}</td>
-      <td style="width:5%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
-      <td class="r" style="width:5%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
-      <td style="width:6%;text-align:center">
-        <span style="font-size:10px;background:#f0f2f5;padding:2px 4px;border-radius:4px;font-weight:600">{dcf_model}</span>
-      </td>
-      <td class="r" style="width:5%;font-weight:800">
-        <span style="color:{mc}">{grade}</span>
-        <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
-      </td>
+      <td data-label="Sector" style="width:9%;color:#57606a;font-size:11px"><span class="mob-label">Sector</span>{row.get('Sector','') or '—'}</td>
+      <td data-label="Price" class="r" style="width:6%"><span class="mob-label">Price</span>{_fmt(row.get('Price',''),2,prefix='$')}</td>
+      <td data-label="Intrinsic" class="r" style="width:7%"><span class="mob-label">Intrinsic Val.</span>{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
+      <td data-label="MoS%" style="width:9%"><span class="mob-label">Margin of Safety</span>{mos_bar}</td>
+      <td data-label="52w" style="width:8%"><span class="mob-label">52w Position</span>{pos_bar}</td>
+      <td data-label="P/E" class="r" style="width:5%"><span class="mob-label">P/E</span>{_fmt(row.get('P/E',''),1,suffix='x')}</td>
+      <td data-label="P/B" class="r" style="width:5%"><span class="mob-label">P/B</span>{_fmt(row.get('P/B',''),2,suffix='x')}</td>
+      <td data-label="EV/EBITDA" class="r" style="width:6%"><span class="mob-label">EV/EBITDA</span>{_fmt(row.get('EV/EBITDA',''),1,suffix='x')}</td>
+      <td data-label="P/FCF" class="r" style="width:5%"><span class="mob-label">P/FCF</span>{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
+      <td data-label="ND/EBITDA" class="r" style="width:6%"><span class="mob-label">Net Debt/EBITDA</span>{_fmt(row.get('NetDebt/EBITDA',''),2,prefix='')}</td>
+      <td data-label="Piotroski" style="width:5%;text-align:center"><span class="mob-label">Piotroski</span>{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
+      <td data-label="ROIC" class="r" style="width:5%"><span class="mob-label">ROIC</span>{_quality_badge(row.get('ROIC%',''),'roic')}</td>
+      <td data-label="DCF" style="width:6%;text-align:center"><span class="mob-label">DCF Model</span><span style="font-size:10px;background:#f0f2f5;padding:2px 4px;border-radius:4px;font-weight:600">{dcf_model}</span></td>
+      <td data-label="Grade" class="r" style="width:5%;font-weight:800"><span class="mob-label">Grade</span><div><span style="color:{mc}">{grade}</span><div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div></div></td>
       {fit_cell}
     </tr>"""
     return data_tr + why_exp_row
@@ -1844,7 +2076,7 @@ def _build_magic_formula_section(rows: list[dict], run_ts: str) -> str:
           <td style="text-align:center;font-size:12px;color:#8d96a0">{ey_r}</td>
           <td style="text-align:center;font-size:12px;color:#8d96a0">{roic_r}</td>
           <td>
-            <div style="font-weight:800;font-size:13px">{ticker}</div>
+            <div style="font-weight:800;font-size:13px">{ticker} {_index_badge(ticker)}</div>
             <div style="font-size:11px;color:#57606a">{company}</div>
           </td>
           <td style="font-size:11px;color:#57606a">{sector or '—'}</td>
@@ -1930,8 +2162,9 @@ def _fetch_bt_prices(tickers: list[str]) -> dict[str, dict[str, float]]:
     _ensure_ohlcv_table()
     con    = duckdb.connect(str(DB_PATH))
     result: dict[str, dict[str, float]] = {}
-    # For backtest we need data from 2020-01-01 onwards
-    bt_start = "2020-01-01"
+    # For backtest we need data from 2018-01-01 onwards
+    # (2019 start_year needs 12M lookback → prices from Jan 2018)
+    bt_start = "2018-01-01"
 
     for tkr in tickers:
         # Check cache: do we have at least 1000 rows (≈4 years of trading days)?
@@ -1948,7 +2181,7 @@ def _fetch_bt_prices(tickers: list[str]) -> dict[str, dict[str, float]]:
         # Fetch full 5-year history from yfinance
         try:
             time.sleep(0.25)
-            hist = yf.Ticker(tkr).history(start="2020-01-01", interval="1d", auto_adjust=True)
+            hist = yf.Ticker(tkr).history(start="2018-01-01", interval="1d", auto_adjust=True)
             if hist.empty:
                 continue
             rows = []
@@ -2030,6 +2263,7 @@ def _momentum_rank(
     )
     lookback_date = f"{look_back_y:04d}-{look_back_m:02d}-01"
 
+
     scored = []
     no_data = []
     for tkr in tickers:
@@ -2046,22 +2280,51 @@ def _momentum_rank(
     return [t for t, _ in scored] + no_data
 
 
+def _fundamental_rank(
+    tickers: list[str],
+    raw_fits: dict[str, dict[str, float]],
+) -> list[str]:
+    """
+    Rank tickers by their cross-profile Overall Score (weighted ProfileFit average).
+    Used as the 'Fundamental' ranking alternative in the backtest.
+    Tickers not in raw_fits fall to the bottom.
+    """
+    _weights = {
+        "deep_value":      1.30,
+        "buffett_quality": 1.20,
+        "quality_value":   1.10,
+        "dividend_growth": 1.05,
+        "high_fcf_yield":  1.00,
+    }
+
+    def _score(tkr: str) -> float:
+        fits = raw_fits.get(tkr, {})
+        if not fits:
+            return 0.0
+        w_sum = sum(_weights.get(k, 1.0) for k in fits)
+        w_fit = sum(fits[k] * _weights.get(k, 1.0) for k in fits)
+        return w_fit / w_sum if w_sum > 0 else 0.0
+
+    return sorted(tickers, key=_score, reverse=True)
+
+
 def _run_monthly_backtest(
     tickers: list[str],                      # candidate universe — re-ranked each period
     prices:  dict[str, dict[str, float]],    # {ticker: {date: close}}
     spx:     dict[str, float],               # {date: spx_close}
     holding_months: int,                     # 1, 3, 6, or 12
     top_n:   int = 5,
-    start_year: int = 2021,
+    start_year: int = 2019,
     end_year:   int = 2025,
+    ranking_method: str = "momentum",        # "momentum" or "fundamental"
+    raw_fits: dict[str, dict[str, float]] | None = None,  # needed for "fundamental"
 ) -> dict:
     """
     Non-overlapping walk-forward simulation with dynamic ranking.
 
-    At each entry date, tickers are re-ranked by 12-month price momentum
-    using only data available up to that date (no look-ahead within the
-    simulation window). The static screener ranking acts only as the
-    candidate universe — which stocks to consider — not the fixed order.
+    ranking_method:
+      "momentum"    — at each entry date re-rank by 12M price momentum (default)
+      "fundamental" — use static cross-profile Overall Score order (raw_fits)
 
     Trades are entered every `holding_months` months (non-overlapping):
       - 1M hold  → 12 trades/year  (Jan, Feb, Mar, …)
@@ -2069,6 +2332,9 @@ def _run_monthly_backtest(
       - 6M hold  →  2 trades/year  (Jan, Jul)
       - 12M hold →  1 trade/year   (Jan)
     """
+    # Pre-compute fundamental rank once (static, does not change per period)
+    _fund_ranked = _fundamental_rank(tickers, raw_fits or {}) if ranking_method == "fundamental" else []
+
     trade_results = []
 
     # Build non-overlapping entry points: start Jan of start_year, step = holding_months
@@ -2085,8 +2351,11 @@ def _run_monthly_backtest(
         # Exit: first trading day of exit month
         exit_date  = f"{exit_year:04d}-{exit_month:02d}-01"
 
-        # Re-rank the candidate universe by 12M momentum as of entry_date
-        ranked_at_entry = _momentum_rank(tickers, prices, entry_date, lookback_months=12)
+        # Re-rank the candidate universe at each entry date
+        if ranking_method == "fundamental":
+            ranked_at_entry = _fund_ranked   # static fundamental order
+        else:
+            ranked_at_entry = _momentum_rank(tickers, prices, entry_date, lookback_months=12)
 
         # Pick top-N from dynamically ranked list that have both entry and exit prices
         picks = []
@@ -2127,6 +2396,11 @@ def _run_monthly_backtest(
             "exit":    exit_date,
             "tickers": [t for t, _, _ in picks],
             "returns": returns,
+            "picks_detail": [
+                {"ticker": t, "entry_price": ep, "exit_price": xp,
+                 "return_pct": (xp / ep - 1.0) * 100.0}
+                for t, ep, xp in picks
+            ],
             "port":    port_ret,
             "bm":      bm_ret,
             "excess":  excess,
@@ -2464,36 +2738,94 @@ def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
 
 
 def _bt_monthly_detail(monthly: list[dict]) -> str:
-    """Collapsible trade detail table."""
+    """Collapsible trade detail table with per-ticker expandable rows."""
     rows_html = ""
-    for r in monthly:
+    for i, r in enumerate(monthly):
         port_c = _return_colour(r["port"])
         bm_c   = "#9ca3af"
         exc_c  = "excess-pos" if (r["excess"] or 0) >= 0 else "excess-neg"
         sp     = "+" if r["port"] >= 0 else ""
         sb     = "+" if (r["bm"] or 0) >= 0 else ""
         se     = "+" if (r["excess"] or 0) >= 0 else ""
-        tkrs   = " · ".join(r["tickers"])
-        entry  = r.get("entry", r["period"])[:7]   # YYYY-MM
-        exit_  = r.get("exit",  "")[:7]            # YYYY-MM
-        rows_html += f"""<tr>
+        entry  = r.get("entry", r["period"])[:10]   # YYYY-MM-DD
+        exit_  = r.get("exit",  "")[:10]
+        detail = r.get("picks_detail", [])
+        bm_val = r["bm"] or 0
+
+        # Build ticker chips for summary column
+        tkr_chips = ""
+        for d in detail:
+            rc = _return_colour(d["return_pct"])
+            s  = "+" if d["return_pct"] >= 0 else ""
+            tkr_chips += (
+                f'<span style="display:inline-block;background:#f7f8fa;border:1px solid #e5e7eb;'
+                f'border-radius:4px;padding:1px 5px;margin:1px 2px;font-size:10px;white-space:nowrap">'
+                f'<strong>{d["ticker"]}</strong>'
+                f'<span style="color:{rc};margin-left:4px">{s}{d["return_pct"]:.1f}%</span>'
+                f'</span>'
+            )
+
+        # Per-ticker sub-table rows
+        detail_rows = ""
+        for d in detail:
+            rc  = _return_colour(d["return_pct"])
+            exc = d["return_pct"] - bm_val
+            ec  = _return_colour(exc)
+            s   = "+" if d["return_pct"] >= 0 else ""
+            se2 = "+" if exc >= 0 else ""
+            win_icon = "✓" if d["return_pct"] > bm_val else "✗"
+            win_c    = "#16a34a" if d["return_pct"] > bm_val else "#e11d48"
+            detail_rows += (
+                f'<tr style="background:#f7fbff">'
+                f'<td style="padding:4px 8px;font-size:11px;color:#57606a;padding-left:32px">↳</td>'
+                f'<td style="padding:4px 8px;font-size:12px;font-weight:700">{d["ticker"]}</td>'
+                f'<td style="padding:4px 8px;font-size:11px;text-align:right">${d["entry_price"]:.2f}</td>'
+                f'<td style="padding:4px 8px;font-size:11px;text-align:right">${d["exit_price"]:.2f}</td>'
+                f'<td style="padding:4px 8px;font-size:12px;font-weight:700;text-align:right;color:{rc}">{s}{d["return_pct"]:.2f}%</td>'
+                f'<td style="padding:4px 8px;font-size:11px;text-align:right;color:{ec}">{se2}{exc:.2f}%</td>'
+                f'<td style="padding:4px 8px;font-size:12px;text-align:center;color:{win_c};font-weight:700">{win_icon}</td>'
+                f'<td></td>'
+                f'</tr>'
+            )
+
+        row_id = f"bt-tr-{i}"
+        rows_html += f"""<tr style="cursor:pointer" onclick="btToggleTrade('{row_id}')">
           <td style="font-weight:700;white-space:nowrap">{entry}</td>
           <td style="color:#57606a;white-space:nowrap">{exit_}</td>
           <td class="r" style="color:{port_c};font-weight:700">{sp}{r["port"]:.2f}%</td>
           <td class="r" style="color:{bm_c}">{sb}{(r["bm"] or 0):.2f}%</td>
           <td class="r"><span class="{exc_c}">{se}{(r["excess"] or 0):.2f}%</span></td>
           <td class="r">{r["wins"]}/{r["n_picks"]}</td>
-          <td style="font-size:11px;color:#57606a">{tkrs}</td>
+          <td style="font-size:11px">{tkr_chips}</td>
+        </tr>
+        <tr id="{row_id}" style="display:none">
+          <td colspan="8" style="padding:0 0 6px 0">
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead>
+                <tr style="background:#e8f0fe">
+                  <th style="padding:4px 8px;text-align:left"></th>
+                  <th style="padding:4px 8px;text-align:left">Ticker</th>
+                  <th style="padding:4px 8px;text-align:right">Buy-in</th>
+                  <th style="padding:4px 8px;text-align:right">Sell-out</th>
+                  <th style="padding:4px 8px;text-align:right">Return</th>
+                  <th style="padding:4px 8px;text-align:right">vs S&amp;P</th>
+                  <th style="padding:4px 8px;text-align:center">Win?</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>{detail_rows}</tbody>
+            </table>
+          </td>
         </tr>"""
 
     return f"""
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#3b82d4;
                       padding:6px 0;user-select:none">
-        &#9654; Show trade detail ({len(monthly)} trades)
+        &#9654; Show trade detail ({len(monthly)} trades) &nbsp;<span style="font-weight:400;color:#57606a">· click any row to expand ticker breakdown</span>
       </summary>
-      <div style="overflow-x:auto;margin-top:8px">
-        <table class="bt-tbl" style="width:100%;font-size:12px">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px">
+        <table class="bt-tbl" style="width:100%;font-size:12px;min-width:520px">
           <thead><tr>
             <th>Entry</th>
             <th>Exit</th>
@@ -2501,7 +2833,7 @@ def _bt_monthly_detail(monthly: list[dict]) -> str:
             <th class="r">S&amp;P 500</th>
             <th class="r">Excess</th>
             <th class="r">Wins/Picks</th>
-            <th>Tickers</th>
+            <th>Tickers &amp; Returns</th>
           </tr></thead>
           <tbody>{rows_html}</tbody>
         </table>
@@ -2514,16 +2846,22 @@ def _build_backtest_section(
     conviction_tickers: list[str],
     prices: dict[str, dict[str, float]],
     spx:    dict[str, float],
+    raw_fits: dict[str, dict[str, float]] | None = None,
 ) -> str:
     """
-    Build the improved backtest section with:
+    Build the backtest section with three axes of tabs:
+     - Ranking method: Momentum / Fundamental
+     - Holding period: 1M / 3M / 6M / 1Y
+     - Portfolio size: Top 5 / Top 10 / Top 15 / Top 20
      - Two strategies: Top Overall and Top Convictions
-     - Four holding periods: 1M, 3M, 6M, 12M
-     - Monthly rebalancing (one trade per month)
-     - 2021-2025 simulation window
     """
     if not prices or not spx:
         return ""
+
+    ranking_configs = [
+        ("momentum",    "Momentum",    "RM",  "#3b82d4"),
+        ("fundamental", "Fundamental", "RF",  "#7c3aed"),
+    ]
 
     holding_configs = [
         (1,  "1 Month",  "1M"),
@@ -2532,98 +2870,100 @@ def _build_backtest_section(
         (12, "1 Year",   "1Y"),
     ]
 
+    portfolio_configs = [
+        (5,  "Top 5",  "P5"),
+        (10, "Top 10", "P10"),
+        (15, "Top 15", "P15"),
+        (20, "Top 20", "P20"),
+    ]
+
     strategies = [
         ("overall",     overall_tickers,    "Top Overall", "#3b82d4"),
         ("convictions", conviction_tickers, "Top Convictions", "#7c3aed"),
     ]
 
-    # Run all simulations
-    results: dict[str, dict[int, dict]] = {}
-    for strat_key, tickers, _label, _colour in strategies:
-        results[strat_key] = {}
-        for hm, _hlabel, _htag in holding_configs:
-            res = _run_monthly_backtest(
-                tickers, prices, spx, holding_months=hm, top_n=5,
-                start_year=2021, end_year=2025,
-            )
-            results[strat_key][hm] = res
+    # Run all simulations: ranking × strategy × holding_months × top_n
+    # results[rank_method][strat_key][hm][top_n] = result dict
+    results: dict[str, dict[str, dict[int, dict[int, dict]]]] = {}
+    for rk_method, _rklabel, _rktag, _rkcolour in ranking_configs:
+        results[rk_method] = {}
+        for strat_key, tickers, _label, _colour in strategies:
+            results[rk_method][strat_key] = {}
+            for hm, _hlabel, _htag in holding_configs:
+                results[rk_method][strat_key][hm] = {}
+                for top_n, _plabel, _ptag in portfolio_configs:
+                    res = _run_monthly_backtest(
+                        tickers, prices, spx, holding_months=hm, top_n=top_n,
+                        start_year=2019, end_year=2025,
+                        ranking_method=rk_method,
+                        raw_fits=raw_fits,
+                    )
+                    results[rk_method][strat_key][hm][top_n] = res
 
-    # ── Build the tab-based HTML ─────────────────────────────────────────────
-    # Tabs: [1M | 3M | 6M | 1Y]  ×  [Top Overall | Top Convictions]
-    # Default tab: 3M
-    tab_blocks = ""
-    for hm, hlabel, htag in holding_configs:
-        is_default = hm == 3
-        tab_blocks += f"""
-        <div class="bt-tab-panel" id="bt-panel-{htag}" style="{'display:block' if is_default else 'display:none'}">
-          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px">"""
-
-        for strat_key, tickers, slabel, scolour in strategies:
-            res = results[strat_key][hm]
-            s   = res.get("summary", {})
-            yr  = res.get("yearly",  [])
-            mo  = res.get("monthly", [])
-            if not s:
-                tab_blocks += f"""
+    def _render_strategy_card(strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel):
+        res = results[strat_key][hm][top_n]
+        s   = res.get("summary", {})
+        yr  = res.get("yearly",  [])
+        mo  = res.get("monthly", [])
+        if not s:
+            return f"""
             <div style="flex:1;min-width:280px;background:#f7f8fa;border:1px solid #e5e7eb;
                         border-radius:10px;padding:16px;opacity:0.5">
               <div style="font-weight:700;color:{scolour};margin-bottom:8px">{slabel}</div>
-              <div style="font-size:12px;color:#9ca3af">Not enough data for this strategy.</div>
+              <div style="font-size:12px;color:#9ca3af">Not enough data.</div>
             </div>"""
-                continue
 
-            cp  = s.get("cagr_port", 0.0)
-            cb  = s.get("cagr_bm",   0.0)
-            exc = s.get("excess",    0.0)
-            sh  = s.get("sharpe",    0.0)
-            dd  = s.get("maxdd",     0.0)
-            wr  = s.get("win_rate",  0.0)
-            nm  = s.get("n_months",  0)
-            cc  = _return_colour(cp)
-            ec  = _return_colour(exc)
-            sp  = "+" if cp  >= 0 else ""
-            se  = "+" if exc >= 0 else ""
-            sb  = "+" if cb  >= 0 else ""
+        cp  = s.get("cagr_port", 0.0)
+        cb  = s.get("cagr_bm",   0.0)
+        exc = s.get("excess",    0.0)
+        sh  = s.get("sharpe",    0.0)
+        dd  = s.get("maxdd",     0.0)
+        wr  = s.get("win_rate",  0.0)
+        nm  = s.get("n_months",  0)
+        cc  = _return_colour(cp)
+        ec  = _return_colour(exc)
+        sp  = "+" if cp  >= 0 else ""
+        se  = "+" if exc >= 0 else ""
+        sb  = "+" if cb  >= 0 else ""
 
-            port_eq = res.get("port_equity", [10000.0])
-            bm_eq   = res.get("bm_equity",   [10000.0])
-            pf      = res.get("port_final",  port_eq[-1])
-            bf      = res.get("bm_final",    bm_eq[-1])
-            pf_c    = _return_colour(pf - 10000)
-            bf_c    = "#57606a"
+        port_eq = res.get("port_equity", [10000.0])
+        bm_eq   = res.get("bm_equity",   [10000.0])
+        pf      = res.get("port_final",  port_eq[-1])
+        bf      = res.get("bm_final",    bm_eq[-1])
+        pf_c    = _return_colour(pf - 10000)
 
-            equity_svg    = _bt_equity_svg(port_eq, bm_eq, scolour)
-            yearly_chart  = _bt_yearly_chart(yr, slabel)
-            monthly_dtail = _bt_monthly_detail(mo)
+        equity_svg    = _bt_equity_svg(port_eq, bm_eq, scolour)
+        yearly_chart  = _bt_yearly_chart(yr, slabel)
+        monthly_dtail = _bt_monthly_detail(mo)
 
-            tab_blocks += f"""
-            <div style="flex:1;min-width:320px;background:#fff;border:1px solid #e5e7eb;
+        return f"""
+            <div style="width:100%;background:#fff;border:1px solid #e5e7eb;
                         border-left:4px solid {scolour};border-radius:10px;padding:18px 20px">
               <div style="font-size:13px;font-weight:800;color:{scolour};margin-bottom:14px;
-                          letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · top 5 picks · {nm} trades · non-overlapping</span></div>
+                          letter-spacing:.02em">{slabel} &nbsp;<span style="font-size:11px;font-weight:500;color:#9ca3af">· hold {hlabel} · {plabel} picks · {nm} trades · non-overlapping</span></div>
 
               <!-- $10,000 final value box -->
-              <div style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
+              <div class="bt-val-box" style="display:flex;gap:12px;margin-bottom:16px;padding:14px 16px;
                           background:#f7f8fa;border-radius:10px;border:1px solid #e5e7eb;flex-wrap:wrap">
-                <div style="flex:1;min-width:130px">
+                <div class="bt-val-item" style="flex:1;min-width:130px">
                   <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
-                    $10,000 invested Jan 2021 →
+                    $10,000 invested Jan 2019 →
                   </div>
                   <div style="font-size:26px;font-weight:900;color:{pf_c}">${pf:,.0f}</div>
                   <div style="font-size:11px;color:#57606a;margin-top:2px">
                     {slabel} &nbsp;·&nbsp; CAGR <strong style="color:{pf_c}">{sp}{cp:.1f}%/yr</strong>
                   </div>
                 </div>
-                <div style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
+                <div class="bt-val-item" style="flex:1;min-width:130px;border-left:1px solid #e5e7eb;padding-left:14px">
                   <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
                     vs S&amp;P 500 same period
                   </div>
-                  <div style="font-size:26px;font-weight:900;color:{bf_c}">${bf:,.0f}</div>
+                  <div style="font-size:26px;font-weight:900;color:#57606a">${bf:,.0f}</div>
                   <div style="font-size:11px;color:#57606a;margin-top:2px">
                     S&amp;P 500 &nbsp;·&nbsp; CAGR <strong>{sb}{cb:.1f}%/yr</strong>
                   </div>
                 </div>
-                <div style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
+                <div class="bt-val-item" style="flex:1;min-width:100px;border-left:1px solid #e5e7eb;padding-left:14px;display:flex;align-items:center">
                   <div>
                     <div style="font-size:10px;color:#57606a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Difference</div>
                     <div style="font-size:22px;font-weight:900;color:{_return_colour(pf - bf)}">${pf - bf:+,.0f}</div>
@@ -2631,7 +2971,7 @@ def _build_backtest_section(
                 </div>
               </div>
 
-              <!-- Equity curve SVG -->
+              <!-- Equity curve -->
               <div style="margin-bottom:8px">
                 <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                             letter-spacing:.06em;margin-bottom:6px">Equity Curve — $10,000 start</div>
@@ -2639,11 +2979,11 @@ def _build_backtest_section(
                   <span style="color:{scolour};font-weight:700">— {slabel}</span>
                   <span style="color:#9ca3af">- - - S&amp;P 500</span>
                 </div>
-                {equity_svg}
+                <div class="bt-eq-svg">{equity_svg}</div>
               </div>
 
               <!-- KPI row -->
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+              <div class="bt-kpi-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
                 <div style="flex:1;min-width:75px;background:#f7f8fa;border-radius:8px;padding:8px 10px;text-align:center">
                   <div style="font-size:18px;font-weight:800;color:{cc}">{sp}{cp:.1f}%</div>
                   <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">CAGR</div>
@@ -2665,26 +3005,78 @@ def _build_backtest_section(
                   <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">Win Rate</div>
                 </div>
               </div>
-              <!-- Annual bar chart -->
               {yearly_chart}
-              <!-- Trade detail collapsible -->
               {monthly_dtail}
             </div>"""
 
-        tab_blocks += """
+    # ── Build tab panels: holding × portfolio_size × strategy ────────────────
+    # Default: 3M holding + Top 5, first strategy visible
+    tab_blocks = ""
+    for hm, hlabel, htag in holding_configs:
+        for top_n, plabel, ptag in portfolio_configs:
+            panel_id   = f"bt-panel-{htag}-{ptag}"
+            is_default = (hm == 3 and top_n == 5)
+
+            # Strategy sub-tab buttons inside this panel
+            strat_btns = ""
+            strat_panels = ""
+            for si, (strat_key, tickers, slabel, scolour) in enumerate(strategies):
+                sp_id     = f"{panel_id}-s{si}"
+                s_active  = si == 0
+                s_btn_sty = (
+                    f"background:{scolour};color:#fff;border-color:{scolour}"
+                    if s_active else
+                    "background:#fff;color:#374151;border-color:#e5e7eb"
+                )
+                strat_btns += (
+                    f'<button class="bt-strat-btn" '
+                    f'data-panel="{panel_id}" data-strat="{sp_id}" '
+                    f'onclick="btSwitchStrat(\'{panel_id}\',\'{sp_id}\')" '
+                    f'style="padding:6px 18px;font-size:12px;font-weight:700;border:1px solid;'
+                    f'border-radius:20px;cursor:pointer;{s_btn_sty}">'
+                    f'<span style="width:8px;height:8px;border-radius:50%;background:{scolour};'
+                    f'display:inline-block;margin-right:6px;vertical-align:middle"></span>'
+                    f'{slabel}</button>'
+                )
+                card_html = _render_strategy_card(
+                    strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel
+                )
+                strat_panels += f"""
+            <div class="bt-strat-panel" id="{sp_id}" style="{'display:block' if s_active else 'display:none'}">
+              {card_html}
+            </div>"""
+
+            tab_blocks += f"""
+        <div class="bt-tab-panel bt-pt-panel" id="{panel_id}" style="{'display:block' if is_default else 'display:none'}">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+            <span style="font-size:11px;color:#57606a;font-weight:600;margin-right:4px">Strategy:</span>
+            {strat_btns}
           </div>
+          {strat_panels}
         </div>"""
 
-    # Tab buttons (1M / 3M / 6M / 1Y)
-    tab_btns = ""
+    # ── Holding period tab buttons ─────────────────────────────────────────────
+    hold_btns = ""
     for hm, hlabel, htag in holding_configs:
         active = "background:#3b82d4;color:#fff;border-color:#3b82d4" if hm == 3 else "background:#fff;color:#374151;border-color:#e5e7eb"
-        tab_btns += (
-            f'<button class="bt-tab-btn" data-tab="{htag}" '
-            f'onclick="btSwitchTab(\'{htag}\')" '
+        hold_btns += (
+            f'<button class="bt-tab-btn bt-hold-btn" data-hold="{htag}" '
+            f'onclick="btSwitchHold(\'{htag}\')" '
             f'style="padding:7px 20px;font-size:12px;font-weight:700;border:1px solid;'
             f'border-radius:20px;cursor:pointer;{active}">'
             f'{htag} &nbsp;<span style="font-size:10px;font-weight:400">({hlabel})</span></button>'
+        )
+
+    # ── Portfolio size tab buttons ─────────────────────────────────────────────
+    port_btns = ""
+    for top_n, plabel, ptag in portfolio_configs:
+        active = "background:#059669;color:#fff;border-color:#059669" if top_n == 5 else "background:#fff;color:#374151;border-color:#e5e7eb"
+        port_btns += (
+            f'<button class="bt-pt-btn" data-pt="{ptag}" '
+            f'onclick="btSwitchPt(\'{ptag}\')" '
+            f'style="padding:6px 16px;font-size:12px;font-weight:700;border:1px solid;'
+            f'border-radius:20px;cursor:pointer;{active}">'
+            f'{plabel}</button>'
         )
 
     return f"""
@@ -2693,11 +3085,11 @@ def _build_backtest_section(
       <div class="profile-badge" style="background:#1f232811;border-color:#1f232844;color:#1f2328">
         BT &nbsp; Backtest
       </div>
-      <div class="section-title">Walk-Forward Backtest — Non-Overlapping Simulation 2021–2025</div>
+      <div class="section-title">Walk-Forward Backtest — Non-Overlapping Simulation 2019–2025</div>
       <div class="section-sub">
-        Simulates investing <strong>$10,000</strong> starting January 2021, rebalancing into the
-        <strong>top 5 screener picks</strong> at each trade interval. Compare against the same
-        $10,000 held in the <strong>S&amp;P 500</strong> over the same period.
+        Simulates investing <strong>$10,000</strong> starting January 2019, rebalancing at each interval.
+        Select <strong>holding period</strong> and <strong>portfolio size</strong> below.
+        Compare against the same $10,000 held in the <strong>S&amp;P 500</strong>.
         <span style="color:#d97706;font-weight:700">⚠ Look-ahead bias applies</span> —
         see explanation below.
       </div>
@@ -2713,136 +3105,274 @@ def _build_backtest_section(
                     border-radius:0 0 8px 8px;padding:20px 22px;font-size:13px;
                     line-height:1.75;color:#374151">
 
-          <p style="margin:0 0 14px">
-            <strong>The core idea:</strong> we pretend you invested $10,000 on 1 January 2021 using
-            the screener's current top picks, then reinvested everything at each rebalance date — no
-            withdrawals, no partial exits. At the same time, we track what $10,000 in the S&amp;P 500
-            index would have grown to. The final numbers answer the question:
-            <em>"Would this strategy have beaten a simple index fund?"</em>
+          <!-- ── 1. Overview ── -->
+          <p style="margin:0 0 6px;font-size:15px;font-weight:800;color:#1f2328">What is this?</p>
+          <p style="margin:0 0 16px">
+            A <strong>walk-forward simulation</strong> that asks: <em>"If I had used this screener's
+            top picks every rebalance period starting January 2019, how much would $10,000 be worth
+            today — and how does that compare to just buying the S&amp;P 500?"</em><br>
+            Every trade uses only price data that was <strong>available at the time of entry</strong>.
+            No future prices are peeked at inside the simulation window.
           </p>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">Step-by-step mechanics</p>
-          <ol style="margin:0 0 16px;padding-left:20px">
+          <!-- ── 2. Data sources ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Data sources</p>
+          <ul style="margin:0 0 16px;padding-left:20px;font-size:12px;color:#374151">
+            <li style="margin-bottom:5px">
+              <strong>Stock prices:</strong> daily adjusted closing prices from
+              <strong>Yahoo Finance</strong> (via yfinance), fetched from <strong>January 2020</strong>
+              to today, cached locally in DuckDB (<code>ohlcv_cache</code> table).
+              "Adjusted" means splits and dividends are already baked in — the price series reflects
+              total return, not just price appreciation.
+            </li>
+            <li style="margin-bottom:5px">
+              <strong>S&amp;P 500 benchmark:</strong> <code>^GSPC</code> daily closes from Yahoo
+              Finance, same date range.
+            </li>
+            <li style="margin-bottom:5px">
+              <strong>Candidate universe:</strong> the <strong>top ~200 tickers</strong> from today's
+              screener run — top 100 from the "Top Overall" ranking + top 100 from the "Top Convictions"
+              ranking, deduplicated. These are the stocks the screener <em>currently</em> considers best-valued.
+            </li>
+            <li>
+              <strong>Entry / exit prices:</strong> the adjusted closing price on the <strong>first
+              available trading day</strong> of the target month (scanned forward up to 10 calendar
+              days to skip weekends and holidays).
+            </li>
+          </ul>
+
+          <!-- ── 3. Exact algorithm ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Exact algorithm — step by step</p>
+          <ol style="margin:0 0 16px;padding-left:20px;font-size:12px;color:#374151">
             <li style="margin-bottom:8px">
-              <strong>Pick selection (dynamic at each entry)</strong> — the screener's top-ranked
-              tickers form the <em>candidate universe</em>. At each entry date, those candidates are
-              re-ranked by their <strong>12-month price momentum</strong> up to that exact date —
-              using only data available at the time, no look-ahead within the simulation window.
-              The <strong>top 5</strong> by momentum are selected. This means the portfolio changes
-              at every rebalance: different stocks in Jan 2021 vs Jul 2022 vs Jan 2024.
-              Each position gets an equal 20% of total capital (equal-weighted).
+              <strong>Build the trade schedule.</strong> Starting from <strong>January 2019</strong>,
+              generate non-overlapping entry dates spaced exactly <em>holding_months</em> apart
+              (e.g. Jan → Apr → Jul → Oct for 3M). The simulation ends at <strong>December 2025</strong>
+              (or when no exit price is available).
             </li>
             <li style="margin-bottom:8px">
-              <strong>Entry</strong> — you "buy" all 5 at the closing price on the first trading day
-              of the entry month.
+              <strong>Dynamic momentum re-rank.</strong> At each entry date, take the candidate universe
+              (the 40 screener tickers) and sort them by their <strong>12-month trailing price return</strong>
+              calculated using only data up to that entry date — specifically:
+              <code>momentum = price_on_entry_date / price_12_months_earlier − 1</code>.
+              Tickers with no historical price data fall to the bottom. This ranking changes every period —
+              the 5 picks in Jan 2019 may be completely different from the 5 picks in Jul 2023.
             </li>
             <li style="margin-bottom:8px">
-              <strong>Holding period</strong> — you hold for the number of months shown in the
-              selected tab (1M, 3M, 6M, or 1Y) without doing anything.
+              <strong>Pick top 5.</strong> Select the first 5 tickers from the momentum-ranked list
+              that have a valid closing price on both the entry date <em>and</em> the exit date.
+              Each gets an equal <strong>20% of total portfolio capital</strong> (equal-weighted).
             </li>
             <li style="margin-bottom:8px">
-              <strong>Exit &amp; reinvest</strong> — on the first trading day of the exit month you
-              "sell" all 5 positions. The total proceeds (original capital + profit or loss) become
-              the new capital for the next trade. <em>100% is reinvested every time.</em>
+              <strong>Calculate trade return.</strong>
+              For each pick: <code>stock_return = exit_price / entry_price − 1</code>.
+              Portfolio return = simple average of the 5 individual returns (equal weight).
+            </li>
+            <li style="margin-bottom:8px">
+              <strong>Compound capital.</strong> New capital = previous capital × (1 + portfolio_return).
+              Starting capital: <strong>$10,000</strong>. 100% is reinvested every trade — no cash drag.
+            </li>
+            <li style="margin-bottom:8px">
+              <strong>Benchmark comparison.</strong> The S&amp;P 500 return is measured over the
+              <em>exact same entry–exit window</em> as each trade, and compounded separately the same way.
+              The annual bar chart uses <strong>true calendar-year returns</strong> (Jan 1 → Jan 1)
+              for the S&amp;P 500, independent of holding period.
             </li>
             <li style="margin-bottom:0">
-              <strong>Repeat</strong> — the cycle restarts immediately. Trades are
-              <strong>non-overlapping</strong>: the next entry happens only after the previous exit.
+              <strong>Aggregate.</strong> CAGR, Sharpe, max drawdown, and win rate are computed across
+              all trades in the simulation. A trade is a <em>Win</em> if the portfolio return exceeded
+              the S&amp;P 500 return over that exact same window.
             </li>
           </ol>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">
-            Concrete example — 3-Month holding (3M tab)
+          <!-- ── 4. Concrete example ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">
+            Concrete example — 3M tab (4 trades/year, 20 total over 5 years)
           </p>
-          <div style="overflow-x:auto;margin-bottom:16px">
+          <div style="overflow-x:auto;margin-bottom:6px">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#1f2328;color:#fff">
-                  <th style="padding:8px 10px;text-align:left">Trade #</th>
+                  <th style="padding:8px 10px;text-align:left">#</th>
                   <th style="padding:8px 10px;text-align:left">Entry</th>
                   <th style="padding:8px 10px;text-align:left">Exit</th>
-                  <th style="padding:8px 10px;text-align:left">Capital invested</th>
+                  <th style="padding:8px 10px;text-align:left">Top 5 picks (by 12M momentum at entry)</th>
                   <th style="padding:8px 10px;text-align:left">Portfolio return</th>
+                  <th style="padding:8px 10px;text-align:left">S&amp;P 500 same window</th>
                   <th style="padding:8px 10px;text-align:left">Capital after exit</th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Apr 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,000</strong> (starting capital)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +9.6%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong></td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Apr 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jul 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +3.6%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong></td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jul 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Oct 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#e11d48">e.g. −1.2%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong></td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Oct 2021</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan 2022</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong> (all reinvested)</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +5.1%</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,791</strong></td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px" colspan="5" style="padding:7px 10px;font-style:italic;color:#57606a">… continues every 3 months through Dec 2025 (20 trades total) …</td></tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2 Jan 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Apr 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Tickers A, B, C, D, E — highest 12M momentum on 2 Jan 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +9.6%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +5.8%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$10,960</strong></td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Apr 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Jul 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Re-ranked on 1 Apr 2019 — likely different 5 tickers</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#16a34a">e.g. +3.6%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +8.5%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,355</strong></td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Jul 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 Oct 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;font-size:11px;color:#57606a">Re-ranked on 1 Jul 2019</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#e11d48">e.g. −1.2%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">e.g. +0.2%</td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>$11,219</strong></td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5" colspan="6" style="font-style:italic;color:#57606a;padding:7px 10px">… continues every 3 months through 2025 (20 trades total) …</td>
+                </tr>
               </tbody>
             </table>
           </div>
-          <p style="margin:0 0 14px;font-size:12px;color:#57606a">
-            The S&amp;P 500 column shows what the same $10,000 would look like if invested in ^GSPC on
-            Jan 1 2021 and held continuously — no trades, no rebalancing.
+          <p style="margin:0 0 16px;font-size:11px;color:#57606a">
+            Every new trade re-ranks the universe from scratch using momentum only up to that exact entry date.
+            Capital always equals 100% of the previous exit value — no cash held between trades.
           </p>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">How are Wins / Picks counted?</p>
-          <p style="margin:0 0 6px">
-            For each trade, every individual stock's return is compared to the S&amp;P 500's return
-            over the <em>exact same entry–exit window</em>.
-            A stock counts as a <strong>Win</strong> if its return was higher than the S&amp;P 500's
-            return in that period — <em>not just if it went up in absolute terms.</em>
-          </p>
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;
-                      font-size:12px;margin-bottom:14px">
-            <strong>Example — Trade 1 (Jan→Apr 2021), S&amp;P 500 returned +1.98%:</strong><br><br>
-            ADAM &nbsp;+15.2% &nbsp;✅ Win &nbsp;|&nbsp;
-            NAVI &nbsp;+8.4% &nbsp;✅ Win &nbsp;|&nbsp;
-            APA &nbsp;+22.1% &nbsp;✅ Win &nbsp;|&nbsp;
-            ISP.MI &nbsp;−2.3% &nbsp;❌ Loss &nbsp;|&nbsp;
-            LRN &nbsp;+3.8% &nbsp;✅ Win
-            <br><br>
-            <strong>Result: 4/5 wins</strong> — 4 stocks beat the S&amp;P 500 that quarter.
-            ISP.MI lost money in absolute terms so it also lost vs the index.
+          <!-- ── 5. Metrics defined ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Metrics — exact definitions</p>
+          <div style="overflow-x:auto;margin-bottom:16px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:#f0f2f5">
+                  <th style="padding:7px 10px;text-align:left;font-weight:700;width:22%">Metric</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">How it is calculated</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>CAGR</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Compound annual growth of the $10,000 equity curve.
+                    Formula: <code>(final_capital / 10000) ^ (1 / n_years) − 1</code>, where
+                    <em>n_years = n_trades × holding_months / 12</em>.
+                  </td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>vs S&amp;P 500</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    CAGR of the portfolio minus CAGR of the S&amp;P 500 computed over the same
+                    non-overlapping trade windows. A positive number means the strategy outperformed.
+                  </td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>Sharpe ratio</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Mean per-trade return divided by the standard deviation of per-trade returns,
+                    then annualised: <code>sharpe = (avg_return / std_return) × √(trades_per_year)</code>.
+                    Higher = better risk-adjusted return. No risk-free rate subtracted (conservative).
+                  </td>
+                </tr>
+                <tr style="background:#f7f8fa">
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>Max drawdown</strong></td>
+                  <td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">
+                    Largest peak-to-trough drop in the compounded equity curve across all trades.
+                    Shown as a negative percentage. E.g. −25% means at worst the portfolio fell
+                    25% from its peak before recovering.
+                  </td>
+                </tr>
+                <tr style="background:#fff">
+                  <td style="padding:7px 10px"><strong>Win rate</strong></td>
+                  <td style="padding:7px 10px">
+                    % of individual stock picks (across all trades) whose return in that exact
+                    entry–exit window exceeded the S&amp;P 500's return over the same window.
+                    50% = matched the index on average. Above 50% = more picks beat the market
+                    than lost to it.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <p style="margin:0 0 8px;font-weight:700;color:#1f2328">Holding period tabs — what changes</p>
-          <div style="overflow-x:auto;margin-bottom:14px">
+          <!-- ── 6. Holding period tabs ── -->
+          <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#1f2328">Holding period tabs — what changes</p>
+          <div style="overflow-x:auto;margin-bottom:16px">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#f0f2f5">
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Tab</th>
-                  <th style="padding:7px 10px;text-align:left;font-weight:700">Hold duration</th>
-                  <th style="padding:7px 10px;text-align:left;font-weight:700">Trades / year</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Hold</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Trades/yr</th>
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Total trades (5 yrs)</th>
                   <th style="padding:7px 10px;text-align:left;font-weight:700">Entry months</th>
+                  <th style="padding:7px 10px;text-align:left;font-weight:700">Notes</th>
                 </tr>
               </thead>
               <tbody>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>1M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">12</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">60</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Feb, Mar, Apr… every month</td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>3M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">20</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Apr, Jul, Oct</td></tr>
-                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>6M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">6 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">10</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Jul</td></tr>
-                <tr style="background:#f7f8fa"><td style="padding:7px 10px"><strong>1Y</strong></td><td style="padding:7px 10px">12 months</td><td style="padding:7px 10px">1</td><td style="padding:7px 10px">5</td><td style="padding:7px 10px">Jan only</td></tr>
+                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>1M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">1 month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">12</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~60</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Every month</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Most trades; highest churn; most sensitive to short-term noise</td></tr>
+                <tr style="background:#f7f8fa"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>3M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">3 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">4</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~20</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Apr, Jul, Oct</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Default view; quarterly rebalance; aligns with earnings cycles</td></tr>
+                <tr style="background:#fff"><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5"><strong>6M</strong></td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">6 months</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">2</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">~10</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5">Jan, Jul</td><td style="padding:7px 10px;border-bottom:1px solid #f0f2f5;color:#57606a;font-size:11px">Semi-annual; fewer data points; less transaction friction</td></tr>
+                <tr style="background:#f7f8fa"><td style="padding:7px 10px"><strong>1Y</strong></td><td style="padding:7px 10px">12 months</td><td style="padding:7px 10px">1</td><td style="padding:7px 10px">5</td><td style="padding:7px 10px">Jan only</td><td style="padding:7px 10px;color:#57606a;font-size:11px">Annual; only 5 trades total — very low statistical significance</td></tr>
               </tbody>
             </table>
           </div>
-          <p style="margin:0;font-size:12px;color:#57606a">
-            Trades never overlap — the next entry starts only after the previous exit.
-            All capital (profit + principal) is reinvested each time.
-          </p>
 
-          <p style="margin:14px 0 8px;font-weight:700;color:#d97706">⚠ Remaining look-ahead bias</p>
-          <p style="margin:0;font-size:12px;color:#57606a">
-            The <strong>candidate universe</strong> (which stocks are even considered) is based on
-            today's screener rankings. A company that scores highly today may have had poor
-            fundamentals in 2021 — but it's still in the pool. The <em>within-simulation ranking</em>
-            (which of those candidates to buy at each date) is clean — based on historical momentum
-            only. Think of it as: <em>"the screener tells us the right stocks to watch; momentum
-            tells us when to buy them."</em> Results are likely <em>somewhat optimistic</em> due to
-            the biased candidate pool, but far more realistic than a fixed static ranking.
-            Also: survivorship bias (only currently-listed companies), no transaction costs, no slippage.
-          </p>
+          <!-- ── 7. Biases and limitations ── -->
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:0">
+            <p style="margin:0 0 8px;font-weight:700;color:#92400e;font-size:13px">
+              ⚠ Biases &amp; limitations — read before drawing conclusions
+            </p>
+            <ul style="margin:0;padding-left:18px;font-size:12px;color:#78350f;line-height:1.8">
+              <li>
+                <strong>Look-ahead bias (candidate pool):</strong> the ~200 stocks in the universe are
+                today's screener picks (top 100 Overall + top 100 Convictions, deduplicated).
+                A company scoring highly <em>now</em> may have had weak fundamentals in 2019,
+                but it's still included in every historical trade.
+                This makes results <em>optimistic</em>. The within-simulation ranking (momentum) is
+                clean — it uses only historical prices available at each entry date.
+              </li>
+              <li>
+                <strong>Survivorship bias:</strong> only companies that are still listed and
+                accessible through Yahoo Finance today are included. Companies that went bankrupt,
+                were delisted, or were acquired since 2019 are absent. Real performance would
+                include some of those losses.
+              </li>
+              <li>
+                <strong>No transaction costs:</strong> no commissions, bid-ask spreads, market
+                impact, or taxes are modelled. Real returns would be lower, especially for 1M
+                (12 trades/year) which involves the most trading.
+              </li>
+              <li>
+                <strong>Equal weighting:</strong> $2,000 per stock regardless of liquidity or
+                position sizing logic. In practice you might weight differently.
+              </li>
+              <li>
+                <strong>Small sample (especially 1Y tab):</strong> 5 annual trades is not
+                statistically meaningful. Even random stock picks could outperform over 5 years
+                by chance. Do not treat the 1Y results as proof of anything.
+              </li>
+              <li>
+                <strong>Interpretation:</strong> treat this as a <em>directional plausibility check</em>
+                — does this screener tend to identify companies that do better than average? — not
+                as a reliable forecast of future returns.
+              </li>
+            </ul>
+          </div>
 
         </div>
       </details>
 
       <!-- Holding period tabs -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        {hold_btns}
+      </div>
+
+      <!-- Portfolio size tabs -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
-        {tab_btns}
+        <span style="font-size:11px;color:#57606a;font-weight:600;align-self:center;margin-right:4px">Portfolio size:</span>
+        {port_btns}
       </div>
 
       {tab_blocks}
@@ -2959,26 +3489,26 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         why_exp_row  = _why_tr(panel_html, 12, tkr, ns="conv") if panel_html else ""
 
         rows_html += f"""<tr>
-          <td style="width:11%">
-            <div style="font-weight:700;font-size:10px;color:{conv_colour};
-                        background:{conv_colour}12;border:1px solid {conv_colour}33;
-                        border-radius:4px;padding:2px 6px;display:inline-block">{conv_label}</div>
-          </td>
-          <td style="width:13%">
-            <div style="font-weight:800;font-size:13px">{tkr}</div>
+          <td data-label="Ticker" style="width:24%">
+            <div style="font-weight:800;font-size:13px">{tkr} {_index_badge(tkr)}</div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
+            <div style="margin-top:4px">
+              <span style="font-weight:700;font-size:10px;color:{conv_colour};
+                           background:{conv_colour}12;border:1px solid {conv_colour}33;
+                           border-radius:4px;padding:2px 6px;display:inline-block">{conv_label}</span>
+            </div>
             {why_btn_html}
           </td>
-          <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '—'}</td>
-          <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-          <td class="r" style="width:7%;font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-          <td style="width:9%">{mos_bar}</td>
-          <td style="width:8%">{pos_bar}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-          <td style="width:6%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
-          <td class="r" style="width:6%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
-          <td style="width:15%">{badge_html}</td>
+          <td data-label="Sector" style="width:9%;font-size:11px;color:#57606a"><span class="mob-label">Sector</span><span>{row.get('Sector','') or '—'}</span></td>
+          <td data-label="Price" class="r" style="width:6%;font-weight:700"><span class="mob-label">Price</span><span>{_fmt(row.get('Price',''),2,prefix='$')}</span></td>
+          <td data-label="Intrinsic Val." class="r" style="width:7%;font-weight:700"><span class="mob-label">Intrinsic Val.</span><span>{_fmt(row.get('DCF Avg',''),2,prefix='$')}</span></td>
+          <td data-label="Margin of Safety" style="width:9%"><span class="mob-label">Margin of Safety</span>{mos_bar}</td>
+          <td data-label="52w Position" style="width:8%"><span class="mob-label">52w Position</span>{pos_bar}</td>
+          <td data-label="P/E" class="r" style="width:5%"><span class="mob-label">P/E</span><span>{_fmt(row.get('P/E',''),1,suffix='x')}</span></td>
+          <td data-label="P/FCF" class="r" style="width:5%"><span class="mob-label">P/FCF</span><span>{_fmt(row.get('P/FCF',''),1,suffix='x')}</span></td>
+          <td data-label="Piotroski" style="width:6%;text-align:center"><span class="mob-label">Piotroski</span><span>{_quality_badge(row.get('Piotroski',''),'piotroski')}</span></td>
+          <td data-label="ROIC" class="r" style="width:6%"><span class="mob-label">ROIC</span><span>{_quality_badge(row.get('ROIC%',''),'roic')}</span></td>
+          <td data-label="Profiles" style="width:15%"><span class="mob-label">Profiles</span><span>{badge_html}</span></td>
         </tr>""" + why_exp_row
 
     n_conv = len(ranked)
@@ -3030,8 +3560,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         </div>
         <table class="stbl">
           <thead><tr>
-            <th style="width:11%">Conviction</th>
-            <th style="width:13%">Ticker / Company</th>
+            <th style="width:24%">Ticker / Company &nbsp; Conviction</th>
             <th style="width:9%">Sector</th>
             <th class="r" style="width:6%">Price</th>
             <th class="r" style="width:7%">Intrinsic Val.</th>
@@ -3169,32 +3698,25 @@ def _build_overall_top(
         rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
 
         rows_html += f"""<tr>
-          <td style="width:4%;text-align:center">
-            <span style="font-weight:800;color:{rank_colour};font-size:15px">#{i+1}</span>
-          </td>
-          <td style="width:13%">
-            <div style="font-weight:800;font-size:14px">{tkr}</div>
+          <td data-label="Ticker" style="width:13%">
+            <div style="font-weight:800;font-size:14px">
+              <span style="font-weight:800;color:{rank_colour};font-size:13px;margin-right:6px">#{i+1}</span>{tkr} {_index_badge(tkr)}
+            </div>
             <div style="font-size:11px;color:#57606a">{row.get('Company','')}</div>
             {why_btn_html}
           </td>
-          <td style="width:9%;font-size:11px;color:#57606a">{row.get('Sector','') or '&mdash;'}</td>
-          <td class="r" style="width:7%">
-            <span style="font-size:22px;font-weight:900;color:{sc}">{score:.0f}</span>
-            <div style="font-size:10px;color:#9ca3af">/ 100</div>
-          </td>
-          <td style="width:10%">{badge_html}</td>
-          <td class="r" style="width:6%;font-weight:700">{_fmt(row.get('Price',''),2,prefix='$')}</td>
-          <td class="r" style="width:7%;font-weight:700">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</td>
-          <td style="width:9%">{mos_bar}</td>
-          <td style="width:8%">{pos_bar}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/E',''),1,suffix='x')}</td>
-          <td class="r" style="width:5%">{_fmt(row.get('P/FCF',''),1,suffix='x')}</td>
-          <td style="width:5%;text-align:center">{_quality_badge(row.get('Piotroski',''),'piotroski')}</td>
-          <td class="r" style="width:5%">{_quality_badge(row.get('ROIC%',''),'roic')}</td>
-          <td class="r" style="width:5%;font-weight:800;color:{mc}">
-            {grade}
-            <div style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</div>
-          </td>
+          <td data-label="Sector" style="width:9%;font-size:11px;color:#57606a"><span class="mob-label">Sector</span><span>{row.get('Sector','') or '&mdash;'}</span></td>
+          <td data-label="Overall Score" class="r" style="width:7%"><span class="mob-label">Overall Score</span><span><span style="font-size:22px;font-weight:900;color:{sc}">{score:.0f}</span><span style="font-size:10px;color:#9ca3af"> / 100</span></span></td>
+          <td data-label="Profiles" style="width:10%"><span class="mob-label">Profiles</span><span>{badge_html}</span></td>
+          <td data-label="Price" class="r" style="width:6%;font-weight:700"><span class="mob-label">Price</span><span>{_fmt(row.get('Price',''),2,prefix='$')}</span></td>
+          <td data-label="Intrinsic Val." class="r" style="width:7%;font-weight:700"><span class="mob-label">Intrinsic Val.</span><span>{_fmt(row.get('DCF Avg',''),2,prefix='$')}</span></td>
+          <td data-label="Margin of Safety" style="width:9%"><span class="mob-label">Margin of Safety</span>{mos_bar}</td>
+          <td data-label="52w Position" style="width:8%"><span class="mob-label">52w Position</span>{pos_bar}</td>
+          <td data-label="P/E" class="r" style="width:5%"><span class="mob-label">P/E</span><span>{_fmt(row.get('P/E',''),1,suffix='x')}</span></td>
+          <td data-label="P/FCF" class="r" style="width:5%"><span class="mob-label">P/FCF</span><span>{_fmt(row.get('P/FCF',''),1,suffix='x')}</span></td>
+          <td data-label="Piotroski" style="width:5%;text-align:center"><span class="mob-label">Piotroski</span><span>{_quality_badge(row.get('Piotroski',''),'piotroski')}</span></td>
+          <td data-label="ROIC" class="r" style="width:5%"><span class="mob-label">ROIC</span><span>{_quality_badge(row.get('ROIC%',''),'roic')}</span></td>
+          <td data-label="Grade" class="r" style="width:5%;font-weight:800;color:{mc}"><span class="mob-label">Grade</span><span>{grade}<span style="font-size:10px;color:#8d96a0;font-weight:400;margin-left:4px">{glabel}</span></span></td>
         </tr>""" + why_exp_row
 
     return f"""
@@ -3235,8 +3757,7 @@ def _build_overall_top(
         </div>
         <table class="stbl">
           <thead><tr>
-            <th style="width:4%;text-align:center">#</th>
-            <th style="width:13%">Ticker / Company</th>
+            <th style="width:17%"># &nbsp; Ticker / Company</th>
             <th style="width:9%">Sector</th>
             <th class="r" style="width:7%">Overall Score</th>
             <th style="width:10%">Profiles</th>
@@ -3261,6 +3782,9 @@ def _build_overall_top(
 def build_full_report(out_path: Path) -> None:
     global _PRICE_DATA
     now = datetime.now().strftime("%d %B %Y, %H:%M")
+
+    # Load index membership sets (SPX / DOW / NDQ) for badges
+    _load_index_sets()
 
     # Load most recent CSV for each profile
     all_profile_rows: dict[str, list[dict]] = {}
@@ -3414,7 +3938,7 @@ def build_full_report(out_path: Path) -> None:
         </details>"""
 
     # ── Overall Top (cross-profile) ───────────────────────────────────────────
-    overall_top_section = _build_overall_top(all_profile_rows, top_n=10)
+    overall_top_section = _build_overall_top(all_profile_rows, top_n=100)
 
     # ── Top Convictions ───────────────────────────────────────────────────────
     convictions_section = _build_convictions_section(all_profile_rows)
@@ -3459,7 +3983,7 @@ def build_full_report(out_path: Path) -> None:
     )
 
     # Fetch historical prices for all backtest tickers + SPX
-    _bt_all_tickers = list(dict.fromkeys(overall_ranked[:40] + conviction_ranked[:40]))
+    _bt_all_tickers = list(dict.fromkeys(overall_ranked[:100] + conviction_ranked[:100]))
     print(f"  Fetching 5y price history for {len(_bt_all_tickers)} backtest tickers…")
     _bt_prices = _fetch_bt_prices(_bt_all_tickers + ["^GSPC"])
     _bt_spx    = _bt_prices.pop("^GSPC", {})
@@ -3474,7 +3998,7 @@ def build_full_report(out_path: Path) -> None:
             <div class="sec-hdr">
               <span class="sec-arrow">&#9654;</span>
               <span class="sec-badge" style="background:#1f232818;color:#1f2328">BT</span>
-              <span class="sec-title">Backtest vs S&amp;P 500 &mdash; Monthly Simulation 2021–2025</span>
+              <span class="sec-title">Backtest vs S&amp;P 500 &mdash; Monthly Simulation 2019–2025</span>
               <span class="sec-meta">Top Overall &amp; Top Convictions · 1M / 3M / 6M / 1Y hold</span>
             </div>
           </summary>
@@ -4101,6 +4625,36 @@ def build_full_report(out_path: Path) -> None:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stock Screener — Full Executive Report</title>
 <style>{_CSS}</style>
+<script defer>
+/* --- Why-Buy row toggle --- */
+function toggleWhy(id) {{
+  var row = document.getElementById(id);
+  var btn = document.getElementById('btn-' + id);
+  var arr = document.getElementById('arr-' + id);
+  if (!row) return;
+  var isOpen = row.style.display !== 'none';
+  document.querySelectorAll('.why-row').forEach(function(r) {{
+    if (r !== row && r.style.display !== 'none') {{
+      r.style.display = 'none';
+      var otherId = r.id;
+      var otherBtn = document.getElementById('btn-' + otherId);
+      var otherArr = document.getElementById('arr-' + otherId);
+      if (otherBtn) otherBtn.classList.remove('open');
+      if (otherArr) otherArr.classList.remove('open');
+    }}
+  }});
+  if (isOpen) {{
+    row.style.display = 'none';
+    if (btn) btn.classList.remove('open');
+    if (arr) arr.classList.remove('open');
+  }} else {{
+    row.style.display = '';
+    if (btn) btn.classList.add('open');
+    if (arr) arr.classList.add('open');
+    setTimeout(function() {{ row.scrollIntoView({{behavior:'smooth', block:'nearest'}}); }}, 50);
+  }}
+}}
+</script>
 </head>
 <body>
 <div class="page">
@@ -4390,19 +4944,63 @@ function loadWatchlist() {{
   renderWatchlist();
 }}
 
-/* --- Backtest tab switcher --- */
-function btSwitchTab(tag) {{
+/* --- Backtest tab switchers --- */
+var _btCurrentHold = '3M';
+var _btCurrentPt   = 'P5';
+
+function _btShowPanel() {{
   document.querySelectorAll('.bt-tab-panel').forEach(function(p) {{
     p.style.display = 'none';
   }});
-  var panel = document.getElementById('bt-panel-' + tag);
+  var panel = document.getElementById('bt-panel-' + _btCurrentHold + '-' + _btCurrentPt);
   if (panel) panel.style.display = 'block';
-  document.querySelectorAll('.bt-tab-btn').forEach(function(b) {{
-    var active = b.getAttribute('data-tab') === tag;
-    b.style.background    = active ? '#3b82d4' : '#fff';
-    b.style.color         = active ? '#fff'    : '#374151';
-    b.style.borderColor   = active ? '#3b82d4' : '#e5e7eb';
+}}
+
+function btSwitchHold(htag) {{
+  _btCurrentHold = htag;
+  _btShowPanel();
+  document.querySelectorAll('.bt-hold-btn').forEach(function(b) {{
+    var active = b.getAttribute('data-hold') === htag;
+    b.style.background  = active ? '#3b82d4' : '#fff';
+    b.style.color       = active ? '#fff'    : '#374151';
+    b.style.borderColor = active ? '#3b82d4' : '#e5e7eb';
   }});
+}}
+
+function btSwitchPt(ptag) {{
+  _btCurrentPt = ptag;
+  _btShowPanel();
+  document.querySelectorAll('.bt-pt-btn').forEach(function(b) {{
+    var active = b.getAttribute('data-pt') === ptag;
+    b.style.background  = active ? '#059669' : '#fff';
+    b.style.color       = active ? '#fff'    : '#374151';
+    b.style.borderColor = active ? '#059669' : '#e5e7eb';
+  }});
+}}
+
+function btSwitchStrat(panelId, stratId) {{
+  /* hide all strat panels inside this holding×portfolio panel */
+  var parent = document.getElementById(panelId);
+  if (!parent) return;
+  parent.querySelectorAll('.bt-strat-panel').forEach(function(p) {{
+    p.style.display = 'none';
+  }});
+  var sp = document.getElementById(stratId);
+  if (sp) sp.style.display = 'block';
+  /* update strat buttons that belong to this panel */
+  parent.querySelectorAll('.bt-strat-btn').forEach(function(b) {{
+    var active = b.getAttribute('data-strat') === stratId;
+    var colour = b.querySelector('span') ? b.querySelector('span').style.background : '#3b82d4';
+    b.style.background  = active ? colour : '#fff';
+    b.style.color       = active ? '#fff'  : '#374151';
+    b.style.borderColor = active ? colour : '#e5e7eb';
+  }});
+}}
+
+function btToggleTrade(rowId) {{
+  var tr = document.getElementById(rowId);
+  if (!tr) return;
+  tr.style.display = tr.style.display === 'none' ? '' : 'none';
 }}
 
 /* --- Initialise on DOMContentLoaded --- */
