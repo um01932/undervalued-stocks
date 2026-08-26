@@ -678,7 +678,7 @@ def _score_cards(row: dict, overall_score: float | None = None) -> str:
     <div style="margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;color:#8d96a0;text-transform:uppercase;
                   letter-spacing:.06em;margin-bottom:8px">Score Breakdown
-        <span style="font-weight:400;color:#c0c4cb"> — MoS×28% + Piotroski×24% + ROIC×24% + FCF Growth×8% + Op.Margin×4% − Dilution penalty</span>
+        <span style="font-weight:400;color:#c0c4cb"> — 7 pillars: MoS (28pts) + FCF Yield (24pts) + Piotroski (24pts) + ROIC (10pts) + Op.Margin (8pts) + FCF Growth (4pts) − Dilution penalty (−4pts max)</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">{cards}</div>
       <div style="margin-top:4px">{totals}</div>
@@ -1974,8 +1974,9 @@ def _build_screener_section(profile_key: str, rows: list[dict], run_ts: str,
       <div class="sec-body">
         <div style="font-size:13px;color:#57606a;margin-bottom:16px">{meta['desc']}</div>
         <div class="ib blue" style="margin-bottom:16px">
-          <strong>Fit Score explained:</strong> 0–100, calculated as
-          70% proximity to all profile thresholds + 30% composite quality score.
+          <strong>Fit Score (0–100):</strong>
+          70% criterion proximity (how close each metric is to the profile threshold)
+          + 30% Composite Score (7-pillar quality score: MoS, FCF Yield, Piotroski, ROIC, Op.Margin, FCF Growth, Dilution).
           <strong style="color:#16a34a">PASS</strong> = meets ALL strict criteria.
           <strong style="color:#9ca3af">NEAR</strong> = misses one or more criteria but still ranked.
           <strong style="color:#dc2626">TRAP</strong> = value trap flag (high debt / negative FCF).
@@ -2900,8 +2901,8 @@ def _build_backtest_section(
                     )
                     results[rk_method][strat_key][hm][top_n] = res
 
-    def _render_strategy_card(strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel):
-        res = results[strat_key][hm][top_n]
+    def _render_strategy_card(strat_key, tickers, slabel, scolour, hm, hlabel, top_n, plabel, rk_method="momentum"):
+        res = results[rk_method][strat_key][hm][top_n]
         s   = res.get("summary", {})
         yr  = res.get("yearly",  [])
         mo  = res.get("monthly", [])
@@ -4291,14 +4292,19 @@ def build_full_report(out_path: Path) -> None:
             <tr>
               <td><strong>Composite Score (0&ndash;100)</strong></td>
               <td>
-                Weighted blend of four normalised signals:<br>
-                &nbsp;&bull; <strong>Margin of Safety %</strong> &mdash; 40% weight<br>
-                &nbsp;&bull; <strong>Piotroski F-Score</strong> &mdash; 25% weight<br>
-                &nbsp;&bull; <strong>ROIC</strong> &mdash; 25% weight<br>
-                &nbsp;&bull; <strong>52-week Position</strong> (inverted: lower = better) &mdash; 10% weight<br>
+                Seven-pillar quality-adjusted score (max 100 pts):<br>
+                &nbsp;&bull; <strong>Margin of Safety %</strong> &mdash; up to 28 pts &mdash; DCF discount vs current price<br>
+                &nbsp;&bull; <strong>FCF Yield</strong> &mdash; up to 24 pts &mdash; free cash flow / market cap<br>
+                &nbsp;&bull; <strong>Piotroski F-Score</strong> &mdash; up to 24 pts &mdash; accounting health (0&ndash;9)<br>
+                &nbsp;&bull; <strong>ROIC %</strong> &mdash; up to 10 pts &mdash; return on invested capital<br>
+                &nbsp;&bull; <strong>Operating Margin %</strong> &mdash; up to 8 pts &mdash; operational efficiency<br>
+                &nbsp;&bull; <strong>FCF Growth 3yr CAGR</strong> &mdash; up to 4 pts &mdash; free cash flow growth trend<br>
+                &nbsp;&bull; <strong>Dilution penalty</strong> &mdash; up to &minus;4 pts &mdash; penalises &gt;5%/yr share dilution<br>
                 Used internally for ranking and as the 30% quality component of ProfileFit.
+                All three input fields (<code>Op.Margin%</code>, <code>FCF Growth 3yr%</code>, <code>Dilution%</code>)
+                are visible as columns in every profile CSV and in the Why-Buy panel.
               </td>
-              <td>&mdash;</td>
+              <td>CSV columns: <code>Op.Margin%</code>, <code>FCF Growth 3yr%</code>, <code>Dilution%</code>, <code>Score</code></td>
             </tr>
           </table>
         </div>
