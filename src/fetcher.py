@@ -281,7 +281,7 @@ class CacheStore:
         self._conn_obj.execute(_CREATE_PRICE_HISTORY)
         self._conn_obj.execute(_CREATE_SCORE_HISTORY)
         # Migrate: add new columns to existing caches that pre-date this schema
-        existing_cols = {
+        existing_info_cols = {
             row[0] for row in self._conn_obj.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_name = 'ticker_info'"
@@ -290,8 +290,9 @@ class CacheStore:
         for col in (
             "week52_low", "week52_high", "dividend_yield", "dividend_rate",
             "beta", "roe", "roa", "gross_margin", "operating_margin",
+            "short_float_pct", "price_momentum_12m",
         ):
-            if col not in existing_cols:
+            if col not in existing_info_cols:
                 self._conn_obj.execute(
                     f"ALTER TABLE ticker_info ADD COLUMN {col} DOUBLE"
                 )
@@ -302,6 +303,19 @@ class CacheStore:
             )
         except Exception:
             pass
+        # Migrate balance_sheet: add current_assets and current_liabilities
+        existing_bs_cols = {
+            row[0] for row in self._conn_obj.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'balance_sheet'"
+            ).fetchall()
+        }
+        for col in ("current_assets", "current_liabilities"):
+            if col not in existing_bs_cols:
+                self._conn_obj.execute(
+                    f"ALTER TABLE balance_sheet ADD COLUMN {col} DOUBLE"
+                )
+                logger.debug("Migrated balance_sheet: added column %s", col)
 
     def _conn(self) -> duckdb.DuckDBPyConnection:
         """Return the shared DuckDB connection."""

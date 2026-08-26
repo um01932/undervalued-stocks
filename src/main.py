@@ -73,7 +73,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--profile",
-        choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth"],
+        choices=["deep_value", "buffett_quality", "high_fcf_yield", "quality_value", "dividend_growth",
+                 "net_net", "momentum_quality", "contrarian"],
         default=None,
         help=(
             "Screener preset to apply. "
