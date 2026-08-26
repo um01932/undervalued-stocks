@@ -3902,16 +3902,25 @@ def build_full_report(out_path: Path) -> None:
     universe_label = f"Multi-Universe ({total_unique_tickers} tickers analyzed)"
 
     # ── Fetch 1-year OHLCV for Why-Buy charts ─────────────────────────────────
-    # Collect unique tickers that will appear in Why-Buy panels (top-N per profile
-    # + top overall). Limit to top 15 per profile sorted by ProfileFit to keep
-    # build time reasonable (~0.3s × 40 tickers ≈ 12s extra).
+    # Collect unique tickers that will appear in Why-Buy panels:
+    #   • top 10 (detailed rows) per profile  — always shown expanded
+    #   • all strict-PASS tickers per profile  — shown with Why-Buy button
+    # Capped at 120 unique tickers total to keep build time reasonable.
     chart_tickers: set[str] = set()
     for rows in all_profile_rows.values():
         sorted_rows = sorted(rows, key=lambda r: _fv(r.get("ProfileFit","")) or 0, reverse=True)
-        for r in sorted_rows[:15]:
+        # Always include top 10 (detailed view) + all strict passes
+        for r in sorted_rows[:10]:
             tkr = r.get("Ticker","").strip()
             if tkr:
                 chart_tickers.add(tkr)
+        for r in sorted_rows:
+            if str(r.get("Passes","")).strip().lower() in ("true","1","yes"):
+                tkr = r.get("Ticker","").strip()
+                if tkr:
+                    chart_tickers.add(tkr)
+            if len(chart_tickers) >= 120:
+                break
 
     if chart_tickers:
         print(f"  Fetching 1y OHLCV for {len(chart_tickers)} tickers (Why-Buy charts)…")
