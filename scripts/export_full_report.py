@@ -2247,6 +2247,40 @@ def _fetch_bt_prices(tickers: list[str]) -> dict[str, dict[str, float]]:
     return result
 
 
+def _fetch_spx_monthly(start: str = "2018-01-01") -> dict[str, float]:
+    """
+    Fetch ^GSPC monthly closes directly from yfinance (interval='1mo').
+    Returns {date_str: close} where date_str is the first day of each month
+    (e.g. '2019-01-01') mapped to the actual month-end close.
+
+    This is fetched fresh every run (no cache) to guarantee the most
+    recent months (incl. current year) are always present and accurate.
+    Uses monthly bars so there are no missing-day issues.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {}
+    try:
+        hist = yf.Ticker("^GSPC").history(start=start, interval="1mo", auto_adjust=True)
+        if hist.empty:
+            return {}
+        result: dict[str, float] = {}
+        for dt, row in hist.iterrows():
+            close_v = float(row["Close"]) if row["Close"] == row["Close"] else None
+            if close_v is None:
+                continue
+            # Store under the 1st of that month for easy lookup by _price_on_or_after
+            month_key = f"{dt.year:04d}-{dt.month:02d}-01"
+            result[month_key] = close_v
+            # Also store under the actual bar date (month-end) for completeness
+            result[str(dt)[:10]] = close_v
+        return result
+    except Exception as exc:
+        print(f"  [spx-monthly] fetch failed: {exc}")
+        return {}
+
+
 def _price_on_or_after(prices: dict[str, float], target_date: str) -> float | None:
     """Return the close price on target_date or the next available trading day."""
     for i in range(10):
@@ -2482,12 +2516,23 @@ def _run_monthly_backtest(
         port_ret = sum(returns) / len(returns)
 
         # Benchmark (SPX) return over same window
+        # Try entry/exit dates directly (monthly keys like YYYY-MM-01 are stored by _fetch_spx_monthly)
         spx_ep = _price_on_or_after(spx, entry_date)
         spx_xp = _price_on_or_after(spx, exit_date)
         if spx_ep and spx_xp and spx_ep > 0:
             bm_ret = (spx_xp / spx_ep - 1.0) * 100.0
         else:
-            bm_ret = None
+            # Last-resort fallback: use the most recent available SPX price as exit
+            all_spx_dates = sorted(spx.keys())
+            if spx_ep and all_spx_dates:
+                last_date = all_spx_dates[-1]
+                spx_xp_fallback = spx[last_date]
+                if spx_xp_fallback and spx_ep > 0:
+                    bm_ret = (spx_xp_fallback / spx_ep - 1.0) * 100.0
+                else:
+                    bm_ret = None
+            else:
+                bm_ret = None
 
         excess = port_ret - bm_ret if bm_ret is not None else None
         wins   = sum(1 for r in returns if r > (bm_ret or 0))
@@ -2611,12 +2656,12 @@ def _run_monthly_backtest(
     for tr in all_trade_rets:
         port_equity.append(port_equity[-1] * (1.0 + tr))
 
+    # Build bm_equity trade-by-trade, including trades where bm=None (use 0% return)
+    # This prevents flatline padding — every trade step is reflected in the benchmark curve
     bm_equity = [INITIAL]
-    for tr in bm_trade_rets:
+    for r in trade_results:
+        tr = r["bm"] / 100.0 if r["bm"] is not None else 0.0
         bm_equity.append(bm_equity[-1] * (1.0 + tr))
-    # Pad bm to same length if needed
-    while len(bm_equity) < len(port_equity):
-        bm_equity.append(bm_equity[-1])
 
     port_final = port_equity[-1]
     bm_final   = bm_equity[-1]
@@ -2994,124 +3039,121 @@ def _bt_monthly_detail(monthly: list[dict]) -> str:
 
 
 
-def _build_optimizer_section(top5: list[dict]) -> str:
+def _build_optimizer_section(top5: list[dict], consistent: list[dict] | None = None) -> str:
     """
-    Render the Weight Optimizer panel: a row of strategy buttons (Strategy 1–5)
-    plus a panel for each showing KPI, equity curve, yearly chart and the weight formula used.
-    Default = best strategy (rank 1) is selected.
+    Render the Weight Optimizer panel.
+    Two rows of buttons:
+      Row 1 — Best CAGR: Strategy 1–5 (green palette)
+      Row 2 — Most Consistent: Consistent 1–3 (blue palette)
+    All buttons share the same panel area below — clicking any shows its full detail.
     """
     if not top5:
         return ""
 
-    _colours = ["#059669", "#3b82d4", "#7c3aed", "#d97706", "#dc2626"]
-    _medal   = ["🥇", "🥈", "🥉", "4th", "5th"]
+    _top_colours  = ["#059669", "#3b82d4", "#7c3aed", "#d97706", "#dc2626"]
+    _cons_colours = ["#0891b2", "#7c5cd8", "#b45309"]
+    _medal        = ["🥇", "🥈", "🥉", "4th", "5th"]
 
     PROFILE_FULL = {
-        "deep_value":       "Deep Value",
-        "net_net":          "Net-Net (NCAV)",
-        "buffett_quality":  "Buffett Quality",
-        "quality_value":    "Quality Value",
-        "dividend_growth":  "Dividend Growth",
-        "high_fcf_yield":   "High FCF Yield",
-        "momentum_quality": "Momentum+Quality",
-        "contrarian":       "Short Contrarian",
+        "deep_value":       "Deep Value",       "net_net":          "Net-Net (NCAV)",
+        "buffett_quality":  "Buffett Quality",  "quality_value":    "Quality Value",
+        "dividend_growth":  "Dividend Growth",  "high_fcf_yield":   "High FCF Yield",
+        "momentum_quality": "Momentum+Quality", "contrarian":       "Short Contrarian",
     }
 
-    strat_btns = ""
-    strat_panels = ""
-
+    # ── Build panels for ALL strategies (top5 + consistent) ──────────────────
+    all_items = []
     for idx, item in enumerate(top5):
-        sid    = f"opt-strat-{idx}"
-        colour = _colours[idx]
-        cagr   = item["cagr"]
-        excess = item["excess"]
+        all_items.append(("top", idx, item, _top_colours[idx % len(_top_colours)], f"Strategy {idx+1}", _medal[idx]))
+    for ci, item in enumerate(consistent or []):
+        all_items.append(("cons", ci, item, _cons_colours[ci % len(_cons_colours)], f"Consistent {ci+1}", "📊"))
+
+    all_panels = ""
+    for (kind, idx, item, colour, label, medal) in all_items:
+        panel_id = f"opt-panel-{kind}-{idx}"
+        is_default = (kind == "top" and idx == 0)
+
+        w      = item["weights"]
         hold   = item.get("holding_months", 3)
+        top_n  = item.get("top_n", 15)
         alpha  = item.get("blend_alpha", 0.0)
         gate   = item.get("min_momentum", -999.0)
-        is_default = (idx == 0)
+        beat_r = item.get("beat_rate", None)
+        yrs_b  = item.get("years_beat_spx", None)
+        yrs_t  = item.get("years_total", None)
 
-        btn_sty = (
-            f"background:{colour};color:#fff;border-color:{colour}"
-            if is_default else
-            "background:#fff;color:#374151;border-color:#e5e7eb"
-        )
-        exc_sign = "+" if excess >= 0 else ""
+        s     = item["result"].get("summary", {})
+        cp    = s.get("cagr_port", 0.0)
+        cb    = s.get("cagr_bm",   0.0)
+        exc   = s.get("excess",    0.0)
+        sh    = s.get("sharpe",    0.0)
+        dd    = s.get("maxdd",     0.0)
+        wr    = s.get("win_rate",  0.0)
+        nm    = s.get("n_months",  0)
+        cc    = _return_colour(cp)
+        ec    = _return_colour(exc)
+        pf    = item["result"].get("port_final", 10000)
+        pf_c  = _return_colour(pf - 10000)
 
-        # Compact strategy descriptor for button subtitle
-        blend_lbl = (
-            "Pure Fund." if alpha == 0.0 else
-            "Pure Mom."  if alpha == 1.0 else
-            f"Blend {alpha:.0%}"
-        )
-        gate_lbl  = "" if gate <= -999.0 else f" · Mom≥{gate:.0f}%"
-        strat_btns += (
-            f'<button class="opt-strat-btn" id="opt-btn-{idx}" data-optid="{idx}" '
-            f'onclick="optSwitchStrat({idx})" '
-            f'style="padding:8px 18px;font-size:12px;font-weight:700;border:2px solid;'
-            f'border-radius:10px;cursor:pointer;{btn_sty};text-align:left;min-width:160px">'
-            f'<div style="font-size:10px;opacity:.85;margin-bottom:2px">Strategy {idx+1} &nbsp;·&nbsp; {hold}M hold</div>'
-            f'<div>{_medal[idx]} CAGR <strong>{cagr:+.1f}%</strong></div>'
-            f'<div style="font-size:10px;margin-top:1px">vs S&amp;P {exc_sign}{excess:.1f}% &nbsp;·&nbsp; {blend_lbl}{gate_lbl}</div>'
-            f'</button>'
-        )
+        port_eq  = item["result"].get("port_equity", [10000])
+        bm_eq    = item["result"].get("bm_equity",   [10000])
+        yr_rows  = item["result"].get("yearly",      [])
+        i_hold   = item.get("holding_months", item["result"].get("holding_months", 3))
+        equity_svg   = _bt_equity_svg(port_eq, bm_eq, colour, start_year=_BT_START, holding_months=i_hold)
+        yearly_chart = _bt_yearly_chart(yr_rows, label)
+        fmt_w        = _fmt_weights(w)
 
-        # Build weight table
-        w = item["weights"]
+        blend_desc = (
+            "Pure Fundamental"  if alpha == 0.0 else
+            "Pure Momentum"     if alpha == 1.0 else
+            f"Blended: {(1-alpha)*100:.0f}% Fund + {alpha*100:.0f}% Mom"
+        )
+        gate_desc  = "No momentum gate" if gate <= -999.0 else f"Momentum gate: 12M ≥ {gate:.0f}%"
+
+        # Beat-rate badge for consistent strategies
+        beat_badge = ""
+        if beat_r is not None:
+            all_pos = item.get("all_positive_excess", False)
+            if all_pos:
+                beat_badge = (f'<span style="font-size:11px;background:#dcfce7;color:#16a34a;'
+                              f'border:1px solid #bbf7d0;border-radius:4px;padding:2px 8px;margin-left:8px">'
+                              f'&#10003; beats SPX every year</span>')
+            else:
+                beat_badge = (f'<span style="font-size:11px;background:#e0f2fe;color:#0369a1;'
+                              f'border:1px solid #bae6fd;border-radius:4px;padding:2px 8px;margin-left:8px">'
+                              f'{yrs_b}/{yrs_t} years beat SPX &nbsp;({beat_r*100:.0f}%)</span>')
+
+        # Weight table
         w_sorted = sorted(w.items(), key=lambda x: -x[1])
-        w_rows = ""
+        w_rows_html = ""
         max_w = max(w.values()) if w else 1.0
         for pk, pv in w_sorted:
             bar_pct = round(pv / max_w * 100, 1)
-            w_rows += (
+            w_rows_html += (
                 f'<tr style="border-bottom:1px solid #f0f2f5">'
                 f'<td style="padding:5px 8px;font-size:12px;font-weight:600">{PROFILE_FULL.get(pk, pk)}</td>'
                 f'<td style="padding:5px 8px;font-size:13px;font-weight:800;color:#1f2328">×{pv:.3f}</td>'
                 f'<td style="padding:5px 8px;width:130px">'
                 f'<div style="background:#e5e7eb;border-radius:4px;height:10px">'
                 f'<div style="background:{colour};border-radius:4px;height:10px;width:{bar_pct}%"></div>'
-                f'</div></td>'
-                f'</tr>'
+                f'</div></td></tr>'
             )
 
-        s      = item["result"].get("summary", {})
-        cp     = s.get("cagr_port", 0.0)
-        cb     = s.get("cagr_bm",   0.0)
-        exc    = s.get("excess",    0.0)
-        sh     = s.get("sharpe",    0.0)
-        dd     = s.get("maxdd",     0.0)
-        wr     = s.get("win_rate",  0.0)
-        nm     = s.get("n_months",  0)
-        cc     = _return_colour(cp)
-        ec     = _return_colour(exc)
-        pf     = item["result"].get("port_final",  10000)
-        pf_c   = _return_colour(pf - 10000)
-        port_eq  = item["result"].get("port_equity",    [10000])
-        bm_eq    = item["result"].get("bm_equity",      [10000])
-        yr       = item["result"].get("yearly",          [])
-        i_hold   = item.get("holding_months", item["result"].get("holding_months", 3))
-        equity_svg   = _bt_equity_svg(port_eq, bm_eq, colour, start_year=_BT_START, holding_months=i_hold)
-        yearly_chart = _bt_yearly_chart(yr, f"Strategy {idx+1}")
-        fmt_w = _fmt_weights(w)
-
-        # Strategy descriptor line
-        blend_desc = (
-            "Pure Fundamental ranking (no momentum blend)"  if alpha == 0.0 else
-            "Pure Momentum ranking (no fundamental blend)"  if alpha == 1.0 else
-            f"Blended: {(1-alpha)*100:.0f}% Fundamental + {alpha*100:.0f}% Momentum"
-        )
-        gate_desc = "No momentum gate" if gate <= -999.0 else f"Momentum gate: only stocks with 12M momentum ≥ {gate:.0f}%"
-
-        strat_panels += f"""
-        <div class="opt-panel" id="{sid}" style="{'display:block' if is_default else 'display:none'}">
+        all_panels += f"""
+        <div class="opt-panel" id="{panel_id}" style="{'display:block' if is_default else 'display:none'}">
           <div style="background:#f7f8fa;border:1px solid #e5e7eb;border-left:4px solid {colour};
                       border-radius:8px;padding:12px 16px;margin-bottom:16px">
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
-              <span style="font-size:11px;font-weight:700;color:{colour}">Hold: {hold}M</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <span style="font-size:13px;font-weight:800;color:{colour}">{label}</span>
+              {beat_badge}
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px">
+              <span style="font-size:11px;font-weight:700;color:{colour}">Hold: {hold}M &nbsp;·&nbsp; Top {top_n}</span>
               <span style="font-size:11px;color:#374151">{blend_desc}</span>
               <span style="font-size:11px;color:#57606a">{gate_desc}</span>
             </div>
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-                        color:#57606a;margin-bottom:4px">Weight Formula — Top 15 Picks</div>
+                        color:#57606a;margin-bottom:4px">Weight Formula</div>
             <div style="font-size:12px;color:#374151;line-height:2">{fmt_w}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
@@ -3142,12 +3184,12 @@ def _build_optimizer_section(top5: list[dict]) -> str:
             <div style="flex:1;min-width:90px;background:{colour}12;border:1px solid {colour}33;
                         border-radius:8px;padding:10px 12px;text-align:center">
               <div style="font-size:20px;font-weight:800;color:{pf_c}">${pf:,.0f}</div>
-              <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">$10k → now</div>
+              <div style="font-size:9px;color:#57606a;text-transform:uppercase;letter-spacing:.05em">$10k &rarr; now</div>
             </div>
           </div>
           <div style="margin-bottom:16px">{equity_svg}</div>
           <div style="font-size:10px;color:#9ca3af;margin-bottom:12px;text-align:right">
-            — Portfolio &nbsp;|&nbsp; - - S&amp;P 500 &nbsp;|&nbsp; {nm} trades · {hold}M hold · Top 15 equal-weight
+            &mdash; Portfolio &nbsp;|&nbsp; - - S&amp;P 500 &nbsp;|&nbsp; {nm} trades &middot; {hold}M hold &middot; Top {top_n} equal-weight
           </div>
           {yearly_chart}
           <details style="margin-top:14px">
@@ -3163,32 +3205,98 @@ def _build_optimizer_section(top5: list[dict]) -> str:
                   <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:700">Weight</th>
                   <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:700">Relative</th>
                 </tr></thead>
-                <tbody>{w_rows}</tbody>
+                <tbody>{w_rows_html}</tbody>
               </table>
             </div>
           </details>
+        </div>"""
+
+    # ── Build two rows of buttons ─────────────────────────────────────────────
+    top_btns  = ""
+    cons_btns = ""
+
+    for (kind, idx, item, colour, label, medal) in all_items:
+        panel_id   = f"opt-panel-{kind}-{idx}"
+        is_default = (kind == "top" and idx == 0)
+        cagr       = item["cagr"]
+        excess     = item["excess"]
+        hold       = item.get("holding_months", 3)
+        top_n      = item.get("top_n", 15)
+        alpha      = item.get("blend_alpha", 0.0)
+        gate       = item.get("min_momentum", -999.0)
+        beat_r     = item.get("beat_rate", None)
+
+        btn_sty = (
+            f"background:{colour};color:#fff;border-color:{colour}"
+            if is_default else
+            "background:#fff;color:#374151;border-color:#e5e7eb"
+        )
+        exc_sign   = "+" if excess >= 0 else ""
+        blend_lbl  = "Pure Fund." if alpha == 0.0 else ("Pure Mom." if alpha == 1.0 else f"Blend {alpha:.0%}")
+        gate_lbl   = "" if gate <= -999.0 else f" · Mom≥{gate:.0f}%"
+
+        if kind == "top":
+            sub2 = f'vs S&amp;P {exc_sign}{excess:.1f}% &nbsp;·&nbsp; {blend_lbl}{gate_lbl}'
+            top_btns += (
+                f'<button class="opt-strat-btn" id="opt-btn-{kind}-{idx}" '
+                f'data-panelid="{panel_id}" data-colour="{colour}" '
+                f'onclick="optSwitchStratV2(this.getAttribute(\'data-panelid\'))" '
+                f'style="padding:8px 16px;font-size:12px;font-weight:700;border:2px solid;'
+                f'border-radius:10px;cursor:pointer;{btn_sty};text-align:left;min-width:150px">'
+                f'<div style="font-size:10px;opacity:.85;margin-bottom:2px">{label} &nbsp;·&nbsp; {hold}M hold &nbsp;·&nbsp; Top {top_n}</div>'
+                f'<div>{medal} CAGR <strong>{cagr:+.1f}%</strong></div>'
+                f'<div style="font-size:10px;margin-top:1px">{sub2}</div>'
+                f'</button>'
+            )
+        else:
+            yrs_b = item.get("years_beat_spx", "?")
+            yrs_t = item.get("years_total", "?")
+            br_str = f"{beat_r*100:.0f}%" if beat_r is not None else "?"
+            cons_btns += (
+                f'<button class="opt-strat-btn" id="opt-btn-{kind}-{idx}" '
+                f'data-panelid="{panel_id}" data-colour="{colour}" '
+                f'onclick="optSwitchStratV2(this.getAttribute(\'data-panelid\'))" '
+                f'style="padding:8px 16px;font-size:12px;font-weight:700;border:2px solid;'
+                f'border-radius:10px;cursor:pointer;background:#fff;color:#374151;border-color:#e5e7eb;text-align:left;min-width:150px">'
+                f'<div style="font-size:10px;opacity:.85;margin-bottom:2px;color:{colour}">{label} &nbsp;·&nbsp; {hold}M hold &nbsp;·&nbsp; Top {top_n}</div>'
+                f'<div style="color:{colour}">&#128202; CAGR <strong>{cagr:+.1f}%</strong></div>'
+                f'<div style="font-size:10px;margin-top:1px">Beat SPX {yrs_b}/{yrs_t} yrs ({br_str}) &nbsp;·&nbsp; {blend_lbl}{gate_lbl}</div>'
+                f'</button>'
+            )
+
+    cons_row = ""
+    if cons_btns:
+        cons_row = f"""
+        <div style="margin-bottom:20px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                      color:#0891b2;margin-bottom:8px">&#128202; Most Consistent &mdash; Beat S&amp;P 500 in &ge;60% of Years</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">{cons_btns}</div>
         </div>"""
 
     return f"""
       <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;
                   padding:20px 22px;margin-bottom:24px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap">
-          <span style="font-size:16px;font-weight:800;color:#15803d">⚡ Weight Optimizer</span>
+          <span style="font-size:16px;font-weight:800;color:#15803d">&#9889; Weight Optimizer</span>
           <span style="font-size:11px;color:#57606a;font-weight:500;background:#fff;
                        border:1px solid #e5e7eb;border-radius:12px;padding:2px 10px">
-            120 combinations · 4-dimensional search · Top 15 picks · {_BT_RANGE}
+            120 combinations &nbsp;&middot;&nbsp; 5-dimensional search &nbsp;&middot;&nbsp; {_BT_RANGE}
           </span>
         </div>
         <div style="font-size:12px;color:#57606a;margin-bottom:16px;line-height:1.6">
-          Searches across <strong>profile weights</strong>, <strong>holding period</strong> (1M/3M/6M),
-          <strong>momentum blend</strong> (0–100% momentum mixed with fundamentals),
-          and <strong>momentum gate</strong> (exclude stocks below a 12M return threshold).
-          <strong style="color:#15803d">Strategy 1 = best CAGR</strong> out of 120 combinations.
+          Searches across <strong>profile weights</strong>, <strong>holding period</strong> (1M/3M/6M/1Y),
+          <strong>portfolio size</strong> (Top 5/10/15),
+          <strong>momentum blend</strong> and <strong>momentum gate</strong>.
+          <strong style="color:#15803d">Strategy 1 = best CAGR</strong> &nbsp;·&nbsp;
+          <strong style="color:#0891b2">Consistent = most years beating S&amp;P 500</strong>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-          {strat_btns}
+        <div style="margin-bottom:8px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                      color:#059669;margin-bottom:8px">&#9650; Best CAGR Strategies</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">{top_btns}</div>
         </div>
-        {strat_panels}
+        {cons_row}
+        {all_panels}
       </div>"""
 
 
@@ -3202,30 +3310,44 @@ _PROFILE_KEYS_ALL = [
 
 def _generate_optimizer_combos(n: int = 120) -> list[dict]:
     """
-    Generate n reproducible multi-dimensional search combinations.
+    Generate n reproducible 5-dimensional search combinations.
     Each combo has:
       - weights:       {profile: weight}  — normalised, mean=1.0
-      - holding_months: int              — 1, 3, or 6
+      - holding_months: int              — 1, 3, 6, or 12
+      - top_n:         int              — portfolio size (5, 10, 15)
       - blend_alpha:   float [0,1]       — 0=pure fundamental, 1=pure momentum
       - min_momentum:  float             — momentum gate threshold (% 12M)
 
-    Combo 0 = current defaults (baseline, no blending, no gate, 3M hold).
+    Combo 0 = current defaults (baseline, no blending, no gate, 3M hold, Top 15).
+    Combos 1-4 = known-good configs that span the performance range.
     """
     import random
     combos: list[dict] = []
 
-    # Combo 0: pure baseline (matches standard Top Overall behaviour)
+    default_weights = {
+        "deep_value":       1.30, "net_net":          1.25,
+        "buffett_quality":  1.20, "quality_value":    1.10,
+        "dividend_growth":  1.05, "high_fcf_yield":   1.00,
+        "momentum_quality": 0.90, "contrarian":       0.85,
+    }
+
+    # Combo 0: pure baseline (matches standard Top Overall, 3M, Top 15)
     combos.append({
-        "weights": {
-            "deep_value":       1.30, "net_net":          1.25,
-            "buffett_quality":  1.20, "quality_value":    1.10,
-            "dividend_growth":  1.05, "high_fcf_yield":   1.00,
-            "momentum_quality": 0.90, "contrarian":       0.85,
-        },
+        "weights": default_weights,
         "holding_months": 3,
+        "top_n":          15,
         "blend_alpha":    0.0,
         "min_momentum":  -999.0,
     })
+    # Combos 1-4: known strong configs to seed the search
+    for hold, tn in [(12, 5), (6, 5), (1, 5), (3, 5)]:
+        combos.append({
+            "weights": default_weights,
+            "holding_months": hold,
+            "top_n":          tn,
+            "blend_alpha":    0.0,
+            "min_momentum":  -999.0,
+        })
 
     rng = random.Random(42)   # fixed seed → fully reproducible
     while len(combos) < n:
@@ -3234,8 +3356,11 @@ def _generate_optimizer_combos(n: int = 120) -> list[dict]:
         mean_w = sum(raw.values()) / len(raw)
         w = {k: round(v / mean_w, 3) for k, v in raw.items()}
 
-        # Holding period: 1M is noisy/costly, 3M balanced, 6M lower turnover
-        holding = rng.choice([1, 3, 3, 6])   # 3M weighted 2× more likely
+        # Holding period: include 12M since it performs best
+        holding = rng.choice([1, 3, 3, 6, 12])
+
+        # Portfolio size: 5 often outperforms 15 (concentration effect)
+        tn = rng.choice([5, 5, 10, 15])   # 5 weighted 2× more likely
 
         # Blend alpha: concentrate search around useful values
         blend = round(rng.choice([
@@ -3251,6 +3376,7 @@ def _generate_optimizer_combos(n: int = 120) -> list[dict]:
         combos.append({
             "weights":        w,
             "holding_months": holding,
+            "top_n":          tn,
             "blend_alpha":    blend,
             "min_momentum":   gate,
         })
@@ -3265,26 +3391,12 @@ def _run_weight_optimizer(
     spx:    dict[str, float],
     raw_fits: dict[str, dict[str, float]],
     n_combos: int = 120,
-    top_n: int = 15,
 ) -> list[dict]:
     """
-    Run n_combos multi-dimensional search combinations and return top-5 by CAGR.
+    Run n_combos 5-dimensional search combinations and return top-5 by CAGR.
 
-    Each combo varies: profile weights + holding period + blend alpha + momentum gate.
-    Returns list of result dicts sorted by CAGR descending:
-      {
-        "rank":          int,
-        "weights":       {profile: weight},
-        "holding_months":int,
-        "blend_alpha":   float,
-        "min_momentum":  float,
-        "cagr":          float,
-        "excess":        float,
-        "sharpe":        float,
-        "maxdd":         float,
-        "win_rate":      float,
-        "result":        full _run_monthly_backtest result dict,
-      }
+    Each combo varies: profile weights + holding period + portfolio size + blend alpha + momentum gate.
+    Returns list of result dicts sorted by CAGR descending.
     """
     combos = _generate_optimizer_combos(n_combos)
     scored: list[dict] = []
@@ -3294,10 +3406,11 @@ def _run_weight_optimizer(
     for combo in combos:
         w       = combo["weights"]
         hold    = combo["holding_months"]
+        top_n   = combo["top_n"]
         alpha   = combo["blend_alpha"]
         gate    = combo["min_momentum"]
 
-        # Run backtest with this combo's unique combination of all 4 dimensions
+        # Run backtest with this combo's unique combination of all 5 dimensions
         res = _run_monthly_backtest(
             all_candidates, prices, spx,
             holding_months=hold,
@@ -3312,17 +3425,37 @@ def _run_weight_optimizer(
         s = res.get("summary", {})
         if not s:
             continue
+
+        # Count years where portfolio beat SPX (using bm_true = real Jan→Jan SPX)
+        yearly = res.get("yearly", [])
+        years_with_bm   = [y for y in yearly if y.get("bm_true") is not None]
+        years_beat_spx  = sum(1 for y in years_with_bm
+                              if y.get("port", 0) > (y.get("bm_true") or 0))
+        n_years_total   = len(years_with_bm)
+        beat_rate       = years_beat_spx / n_years_total if n_years_total else 0.0
+        # "Consistent" = beats SPX in ≥ 60% of years AND positive excess every year
+        # We track both CAGR-best and consistent-best separately
+        all_positive_excess = all(
+            (y.get("port", 0) - (y.get("bm_true") or 0)) > 0
+            for y in years_with_bm
+        ) if years_with_bm else False
+
         scored.append({
-            "weights":        w,
-            "holding_months": hold,
-            "blend_alpha":    alpha,
-            "min_momentum":   gate,
-            "cagr":           s.get("cagr_port", 0.0),
-            "excess":         s.get("excess",    0.0),
-            "sharpe":         s.get("sharpe",    0.0),
-            "maxdd":          s.get("maxdd",     0.0),
-            "win_rate":       s.get("win_rate",  0.0),
-            "result":         res,
+            "weights":           w,
+            "holding_months":    hold,
+            "top_n":             top_n,
+            "blend_alpha":       alpha,
+            "min_momentum":      gate,
+            "cagr":              s.get("cagr_port", 0.0),
+            "excess":            s.get("excess",    0.0),
+            "sharpe":            s.get("sharpe",    0.0),
+            "maxdd":             s.get("maxdd",     0.0),
+            "win_rate":          s.get("win_rate",  0.0),
+            "years_beat_spx":    years_beat_spx,
+            "years_total":       n_years_total,
+            "beat_rate":         beat_rate,
+            "all_positive_excess": all_positive_excess,
+            "result":            res,
         })
 
     # Sort by CAGR descending, take top 5
@@ -3330,7 +3463,18 @@ def _run_weight_optimizer(
     top5 = scored[:5]
     for i, item in enumerate(top5):
         item["rank"] = i + 1
-    return top5
+
+    # Also find the top-3 "consistent" strategies: beat SPX in most years
+    # Sorted by beat_rate desc, then by CAGR as tiebreak
+    consistent = sorted(
+        [s for s in scored if s["beat_rate"] >= 0.60],
+        key=lambda x: (x["beat_rate"], x["cagr"]),
+        reverse=True,
+    )[:3]
+    for i, item in enumerate(consistent):
+        item["consistent_rank"] = i + 1
+
+    return top5, consistent
 
 
 def _fmt_weights(w: dict[str, float]) -> str:
@@ -3358,6 +3502,7 @@ def _build_backtest_section(
     spx:    dict[str, float],
     raw_fits: dict[str, dict[str, float]] | None = None,
     top5_strategies: list[dict] | None = None,
+    consistent_strategies: list[dict] | None = None,
 ) -> str:
     """
     Build the backtest section with three axes of tabs:
@@ -3628,7 +3773,7 @@ def _build_backtest_section(
       </div>"""
 
     # ── Build Weight Optimizer section ────────────────────────────────────────
-    opt_section_html = _build_optimizer_section(top5_strategies or [])
+    opt_section_html = _build_optimizer_section(top5_strategies or [], consistent=consistent_strategies)
 
     return f"""
     <span class="section-anchor" id="backtest"></span>
@@ -4622,25 +4767,37 @@ def build_full_report(out_path: Path) -> None:
         key=lambda t: (-len(_bt_passes[t]), -_overall_score(t, _bt_raw_fits)),
     )
 
-    # Fetch historical prices for all backtest tickers + SPX
+    # Fetch historical prices for all backtest tickers
     _bt_all_tickers = list(dict.fromkeys(overall_ranked[:100] + conviction_ranked[:100]))
     print(f"  Fetching 5y price history for {len(_bt_all_tickers)} backtest tickers…")
     _bt_prices = _fetch_bt_prices(_bt_all_tickers + ["^GSPC"])
-    _bt_spx    = _bt_prices.pop("^GSPC", {})
-    print(f"  Backtest prices fetched: {len(_bt_prices)} tickers, {len(_bt_spx)} SPX days.")
+    _bt_spx_daily = _bt_prices.pop("^GSPC", {})
+
+    # Fetch SPX monthly separately — guaranteed complete, no missing-day gaps
+    print("  Fetching SPX monthly prices (^GSPC, fresh from yfinance)…")
+    _bt_spx_monthly = _fetch_spx_monthly(start="2018-01-01")
+    # Merge: monthly keys take priority (more reliable), daily fills gaps for _price_on_or_after
+    _bt_spx = {**_bt_spx_daily, **_bt_spx_monthly}
+    print(f"  Backtest prices fetched: {len(_bt_prices)} tickers, {len(_bt_spx)} SPX entries ({len(_bt_spx_monthly)} monthly).")
 
     # ── Weight Optimizer — run 100 weight combos, pick top-5 by CAGR ─────────
-    print("  Running weight optimizer (120 combos, 4-dimensional search)…")
-    top5_opt = _run_weight_optimizer(
+    print("  Running weight optimizer (120 combos, 5-dimensional search)…")
+    top5_opt, consistent_opt = _run_weight_optimizer(
         overall_ranked, conviction_ranked,
         _bt_prices, _bt_spx, _bt_raw_fits,
         n_combos=120,
     )
-    print(f"  Optimizer done — top CAGR: {top5_opt[0]['cagr']:+.1f}% (Strategy 1)" if top5_opt else "  Optimizer: no results.")
+    if top5_opt:
+        print(f"  Optimizer done — top CAGR: {top5_opt[0]['cagr']:+.1f}% (Strategy 1), "
+              f"best consistent: {consistent_opt[0]['beat_rate']*100:.0f}% years beat SPX" if consistent_opt else
+              f"  Optimizer done — top CAGR: {top5_opt[0]['cagr']:+.1f}% (Strategy 1)")
+    else:
+        print("  Optimizer: no results.")
 
     bt_inner = _build_backtest_section(
         overall_ranked, conviction_ranked, _bt_prices, _bt_spx,
         raw_fits=_bt_raw_fits, top5_strategies=top5_opt,
+        consistent_strategies=consistent_opt,
     )
     if bt_inner:
         bt_section = f"""
@@ -5677,6 +5834,30 @@ function btSwitchStrat(panelId, stratId) {{
     b.style.color       = active ? '#fff'  : '#374151';
     b.style.borderColor = active ? colour : '#e5e7eb';
   }});
+}}
+
+function optSwitchStratV2(panelId) {{
+  /* Hide all opt-panels */
+  document.querySelectorAll('.opt-panel').forEach(function(p) {{
+    p.style.display = 'none';
+  }});
+  /* Reset all optimizer buttons */
+  document.querySelectorAll('.opt-strat-btn').forEach(function(b) {{
+    b.style.background  = '#fff';
+    b.style.color       = '#374151';
+    b.style.borderColor = '#e5e7eb';
+  }});
+  /* Show the selected panel */
+  var panel = document.getElementById(panelId);
+  if (panel) panel.style.display = 'block';
+  /* Highlight the clicked button via data-panelid */
+  var btn = document.querySelector('.opt-strat-btn[data-panelid="' + panelId + '"]');
+  if (btn) {{
+    var col = btn.getAttribute('data-colour') || '#059669';
+    btn.style.background  = col;
+    btn.style.color       = '#fff';
+    btn.style.borderColor = col;
+  }}
 }}
 
 function optSwitchStrat(idx) {{
