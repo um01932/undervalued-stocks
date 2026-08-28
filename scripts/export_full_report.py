@@ -2934,8 +2934,10 @@ def _bt_yearly_chart(yearly_rows: list[dict], portfolio_label: str) -> str:
     return html
 
 
-def _bt_monthly_detail(monthly: list[dict]) -> str:
-    """Collapsible trade detail table with per-ticker expandable rows."""
+def _bt_monthly_detail(monthly: list[dict], ns: str = "") -> str:
+    """Collapsible trade detail table with per-ticker expandable rows.
+    ns = namespace prefix to keep row IDs unique across multiple panels."""
+    id_prefix = f"bt-tr-{ns}-" if ns else "bt-tr-"
     rows_html = ""
     for i, r in enumerate(monthly):
         port_c = _return_colour(r["port"])
@@ -2985,7 +2987,7 @@ def _bt_monthly_detail(monthly: list[dict]) -> str:
                 f'</tr>'
             )
 
-        row_id = f"bt-tr-{i}"
+        row_id = f"{id_prefix}{i}"
         rows_html += f"""<tr style="cursor:pointer" onclick="btToggleTrade('{row_id}')">
           <td style="font-weight:700;white-space:nowrap">{entry}</td>
           <td style="color:#57606a;white-space:nowrap">{exit_}</td>
@@ -3098,10 +3100,12 @@ def _build_optimizer_section(top5: list[dict], consistent: list[dict] | None = N
         port_eq  = item["result"].get("port_equity", [10000])
         bm_eq    = item["result"].get("bm_equity",   [10000])
         yr_rows  = item["result"].get("yearly",      [])
+        mo_rows  = item["result"].get("monthly",     [])
         i_hold   = item.get("holding_months", item["result"].get("holding_months", 3))
-        equity_svg   = _bt_equity_svg(port_eq, bm_eq, colour, start_year=_BT_START, holding_months=i_hold)
-        yearly_chart = _bt_yearly_chart(yr_rows, label)
-        fmt_w        = _fmt_weights(w)
+        equity_svg    = _bt_equity_svg(port_eq, bm_eq, colour, start_year=_BT_START, holding_months=i_hold)
+        yearly_chart  = _bt_yearly_chart(yr_rows, label)
+        monthly_dtail = _bt_monthly_detail(mo_rows, ns=f"opt-{kind}-{idx}")
+        fmt_w         = _fmt_weights(w)
 
         blend_desc = (
             "Pure Fundamental"  if alpha == 0.0 else
@@ -3192,6 +3196,7 @@ def _build_optimizer_section(top5: list[dict], consistent: list[dict] | None = N
             &mdash; Portfolio &nbsp;|&nbsp; - - S&amp;P 500 &nbsp;|&nbsp; {nm} trades &middot; {hold}M hold &middot; Top {top_n} equal-weight
           </div>
           {yearly_chart}
+          {monthly_dtail}
           <details style="margin-top:14px">
             <summary style="cursor:pointer;font-size:12px;font-weight:700;color:{colour};
                             padding:6px 10px;background:{colour}10;border:1px solid {colour}33;
