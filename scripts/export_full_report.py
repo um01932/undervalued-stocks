@@ -3407,6 +3407,7 @@ def _run_weight_optimizer(
     scored: list[dict] = []
 
     all_candidates = list(dict.fromkeys(overall_tickers + conviction_tickers))
+    current_year = datetime.now().year   # completed years only for beat_rate
 
     for combo in combos:
         w       = combo["weights"]
@@ -3432,8 +3433,10 @@ def _run_weight_optimizer(
             continue
 
         # Count years where portfolio beat SPX (using bm_true = real Jan→Jan SPX)
+        # Only count *completed* calendar years (exclude current year — Jan→Jan not yet closed)
         yearly = res.get("yearly", [])
-        years_with_bm   = [y for y in yearly if y.get("bm_true") is not None]
+        years_with_bm   = [y for y in yearly
+                           if y.get("bm_true") is not None and y["year"] < current_year]
         years_beat_spx  = sum(1 for y in years_with_bm
                               if y.get("port", 0) > (y.get("bm_true") or 0))
         n_years_total   = len(years_with_bm)
@@ -3470,10 +3473,11 @@ def _run_weight_optimizer(
         item["rank"] = i + 1
 
     # Also find the top-3 "consistent" strategies: beat SPX in most years
-    # Sorted by beat_rate desc, then by CAGR as tiebreak
+    # Sorted by: beat_rate desc, then years_beat_spx desc (more years = more reliable),
+    # then sharpe desc (risk-adjusted), then cagr as final tiebreak
     consistent = sorted(
         [s for s in scored if s["beat_rate"] >= 0.60],
-        key=lambda x: (x["beat_rate"], x["cagr"]),
+        key=lambda x: (x["beat_rate"], x["years_beat_spx"], x["sharpe"], x["cagr"]),
         reverse=True,
     )[:3]
     for i, item in enumerate(consistent):
