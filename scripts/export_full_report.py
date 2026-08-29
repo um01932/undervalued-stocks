@@ -3289,7 +3289,7 @@ def _build_optimizer_section(top5: list[dict], consistent: list[dict] | None = N
           </span>
         </div>
         <div style="font-size:12px;color:#57606a;margin-bottom:16px;line-height:1.6">
-          Searches across <strong>profile weights</strong>, <strong>holding period</strong> (1M/3M/6M/1Y),
+          Searches across <strong>profile weights</strong>, <strong>holding period</strong> (1M/3M),
           <strong>portfolio size</strong> (Top 5/10/15),
           <strong>momentum blend</strong> and <strong>momentum gate</strong>.
           <strong style="color:#15803d">Strategy 1 = best CAGR</strong> &nbsp;·&nbsp;
@@ -3344,8 +3344,8 @@ def _generate_optimizer_combos(n: int = 120) -> list[dict]:
         "blend_alpha":    0.0,
         "min_momentum":  -999.0,
     })
-    # Combos 1-4: known strong configs to seed the search
-    for hold, tn in [(12, 5), (6, 5), (1, 5), (3, 5)]:
+    # Combos 1-3: known strong configs to seed the search (only 1M and 3M hold)
+    for hold, tn in [(1, 5), (3, 5), (1, 10)]:
         combos.append({
             "weights": default_weights,
             "holding_months": hold,
@@ -3361,8 +3361,8 @@ def _generate_optimizer_combos(n: int = 120) -> list[dict]:
         mean_w = sum(raw.values()) / len(raw)
         w = {k: round(v / mean_w, 3) for k, v in raw.items()}
 
-        # Holding period: include 12M since it performs best
-        holding = rng.choice([1, 3, 3, 6, 12])
+        # Holding period: only 1M and 3M (enough trades for statistical significance)
+        holding = rng.choice([1, 1, 3, 3, 3])   # 3M weighted slightly more
 
         # Portfolio size: 5 often outperforms 15 (concentration effect)
         tn = rng.choice([5, 5, 10, 15])   # 5 weighted 2× more likely
