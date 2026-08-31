@@ -3435,11 +3435,12 @@ def _run_weight_optimizer(
         # Count years where portfolio beat SPX (using bm_true = real Jan→Jan SPX)
         # Only count *completed* calendar years (exclude current year — Jan→Jan not yet closed)
         yearly = res.get("yearly", [])
-        years_with_bm   = [y for y in yearly
-                           if y.get("bm_true") is not None and y["year"] < current_year]
+        all_completed   = [y for y in yearly if y["year"] < current_year]
+        years_with_bm   = [y for y in all_completed if y.get("bm_true") is not None]
         years_beat_spx  = sum(1 for y in years_with_bm
                               if y.get("port", 0) > (y.get("bm_true") or 0))
-        n_years_total   = len(years_with_bm)
+        # Denominator = all completed years (including those without SPX data — counted as neutral)
+        n_years_total   = len(all_completed)
         beat_rate       = years_beat_spx / n_years_total if n_years_total else 0.0
         # "Consistent" = beats SPX in ≥ 60% of years AND positive excess every year
         # We track both CAGR-best and consistent-best separately
@@ -3474,10 +3475,10 @@ def _run_weight_optimizer(
 
     # Also find the top-3 "consistent" strategies: beat SPX in most years
     # Sorted by: beat_rate desc, then years_beat_spx desc (more years = more reliable),
-    # then sharpe desc (risk-adjusted), then cagr as final tiebreak
+    # then cagr desc (highest return wins tie), then sharpe as final tiebreak
     consistent = sorted(
         [s for s in scored if s["beat_rate"] >= 0.60],
-        key=lambda x: (x["beat_rate"], x["years_beat_spx"], x["sharpe"], x["cagr"]),
+        key=lambda x: (x["beat_rate"], x["years_beat_spx"], x["cagr"], x["sharpe"]),
         reverse=True,
     )[:3]
     for i, item in enumerate(consistent):
@@ -4210,6 +4211,7 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
         why_exp_div  = (f'<div class="why-row" id="why-{tkr.replace(".", "-")}-conv" style="display:none;margin-top:8px">{panel_html}</div>'
                         if panel_html else "")
 
+        _lbl = "font-size:11px;color:#374151;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid #e5e7eb"
         cards_html += f"""
         <div style="background:#fff;border:1px solid #e5e7eb;border-left:4px solid {conv_colour};
                     border-radius:10px;padding:16px 18px;margin-bottom:12px">
@@ -4226,45 +4228,45 @@ def _build_convictions_section(all_profile_rows: dict[str, list[dict]]) -> str:
                            border-radius:4px;padding:3px 8px;display:inline-block">{conv_label}</span>
             </div>
           </div>
-          <!-- metrics grid -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Price</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('Price',''),2,prefix='$')}</div>
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Intrinsic Value (DCF)</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</div>
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Margin of Safety</div>
-              {mos_bar}
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">52-Week Position</div>
-              {pos_bar}
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">P/E Ratio</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('P/E',''),1,suffix='x')}</div>
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">P/FCF Ratio</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('P/FCF',''),1,suffix='x')}</div>
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Piotroski Score</div>
-              <div>{_quality_badge(row.get('Piotroski',''),'piotroski')}</div>
-            </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">ROIC</div>
-              <div>{_quality_badge(row.get('ROIC%',''),'roic')}</div>
-            </div>
-          </div>
           <!-- profiles row -->
-          <div style="margin-bottom:6px">
-            <span style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-right:6px">Profiles passed:</span>
+          <div style="margin-bottom:12px">
+            <span style="font-size:11px;color:#374151;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:6px">Profiles passed:</span>
             {badge_html}
+          </div>
+          <!-- metrics grid -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">💰 Price</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('Price',''),2,prefix='$')}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🎯 Intrinsic Value (DCF)</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📊 Margin of Safety</div>
+              <div style="margin-top:4px">{mos_bar}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📈 52-Week Position</div>
+              <div style="margin-top:4px">{pos_bar}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📉 P/E Ratio</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('P/E',''),1,suffix='x')}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">💸 P/FCF Ratio</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('P/FCF',''),1,suffix='x')}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🏆 Piotroski Score</div>
+              <div style="margin-top:4px">{_quality_badge(row.get('Piotroski',''),'piotroski')}</div>
+            </div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🔄 ROIC</div>
+              <div style="margin-top:4px">{_quality_badge(row.get('ROIC%',''),'roic')}</div>
+            </div>
           </div>
           {why_panel}{why_exp_div}
         </div>"""
@@ -4450,6 +4452,7 @@ def _build_overall_top(
         rank_colour = "#d97706" if i == 0 else ("#3b82d4" if i < 3 else "#57606a")
         border_colour = rank_colour if i < 3 else "#3b82d4"
 
+        _lbl = "font-size:11px;color:#374151;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid #e5e7eb"
         cards_html += f"""
         <div style="background:#fff;border:1px solid #e5e7eb;border-left:4px solid {border_colour};
                     border-radius:10px;padding:16px 18px;margin-bottom:12px">
@@ -4463,49 +4466,49 @@ def _build_overall_top(
               <div style="font-size:11px;color:#57606a;margin-top:2px">{row.get('Sector','') or '—'}</div>
             </div>
             <div style="text-align:right">
-              <div style="font-size:11px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Overall Score</div>
+              <div style="font-size:11px;color:#374151;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Overall Score</div>
               <div><span style="font-size:28px;font-weight:900;color:{sc}">{score:.0f}</span><span style="font-size:12px;color:#9ca3af"> / 100</span></div>
               <div style="font-size:12px;font-weight:700;color:{mc};margin-top:2px">{grade} <span style="font-size:10px;color:#8d96a0;font-weight:400">{glabel}</span></div>
             </div>
           </div>
           <!-- profiles badges -->
-          <div style="margin-bottom:10px">
-            <span style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-right:6px">Profiles (hover for name):</span>
+          <div style="margin-bottom:12px">
+            <span style="font-size:11px;color:#374151;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:6px">Profiles:</span>
             {badge_html}
           </div>
           <!-- metrics grid -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Price</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('Price',''),2,prefix='$')}</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">💰 Price</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('Price',''),2,prefix='$')}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Intrinsic Value (DCF)</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🎯 Intrinsic Value (DCF)</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('DCF Avg',''),2,prefix='$')}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Margin of Safety</div>
-              {mos_bar}
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📊 Margin of Safety</div>
+              <div style="margin-top:4px">{mos_bar}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">52-Week Position</div>
-              {pos_bar}
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📈 52-Week Position</div>
+              <div style="margin-top:4px">{pos_bar}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">P/E Ratio</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('P/E',''),1,suffix='x')}</div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">📉 P/E Ratio</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('P/E',''),1,suffix='x')}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">P/FCF Ratio</div>
-              <div style="font-weight:700;font-size:14px">{_fmt(row.get('P/FCF',''),1,suffix='x')}</div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">💸 P/FCF Ratio</div>
+              <div style="font-weight:700;font-size:15px;margin-top:4px">{_fmt(row.get('P/FCF',''),1,suffix='x')}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">Piotroski Score</div>
-              <div>{_quality_badge(row.get('Piotroski',''),'piotroski')}</div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🏆 Piotroski Score</div>
+              <div style="margin-top:4px">{_quality_badge(row.get('Piotroski',''),'piotroski')}</div>
             </div>
-            <div style="background:#f7f8fa;border-radius:6px;padding:8px 10px">
-              <div style="font-size:10px;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">ROIC</div>
-              <div>{_quality_badge(row.get('ROIC%',''),'roic')}</div>
+            <div style="background:#f7f8fa;border-radius:6px;padding:10px 12px">
+              <div style="{_lbl}">🔄 ROIC</div>
+              <div style="margin-top:4px">{_quality_badge(row.get('ROIC%',''),'roic')}</div>
             </div>
           </div>
           {why_panel}{why_exp_div}
